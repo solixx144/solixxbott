@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.TextSnippet
@@ -83,7 +84,8 @@ fun SolixxTopHeader(
     botOnline: Boolean,
     targetChannel: String = "@SolixxTR",
     isLocalMode: Boolean = true,
-    onTestClick: () -> Unit = {}
+    onTestClick: () -> Unit = {},
+    onSyncClick: () -> Unit = {}
 ) {
     Surface(
         color = SurfaceDarkCharcoal,
@@ -148,7 +150,7 @@ fun SolixxTopHeader(
                 }
             }
 
-            // Status Badges (Channel & Bot Online)
+            // Status Badges (Channel, Bot Online, & Sync)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -205,6 +207,34 @@ fun SolixxTopHeader(
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Black
                         )
+                    }
+                }
+
+                // Manual Remote Sync Pill (shown when live connected or not in local mode)
+                if (!isLocalMode) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(AccentPurpleContainer)
+                            .border(1.dp, AccentPurple.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                            .clickable { onSyncClick() }
+                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Sync",
+                                tint = AccentPurpleLight,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "YENİLE",
+                                color = AccentPurpleLight,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

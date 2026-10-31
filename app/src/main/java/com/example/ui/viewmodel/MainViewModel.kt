@@ -96,10 +96,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.friendsFlow,
         repository.logsFlow
     ) { current, stats, announcements, friends, logs ->
+        val friendsWithCount = friends.map { friend ->
+            val count = announcements.count { it.senderTelegramId == friend.telegramId }
+            friend.copy(submissionCount = count)
+        }
         current.copy(
             stats = stats,
             allAnnouncements = announcements,
-            friends = friends,
+            friends = friendsWithCount,
             logs = logs
         )
     }.stateIn(
@@ -272,6 +276,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         toastMessage = "🟢 Sunucuya bağlanıldı! Gecikme: ${latency}ms (Bot: ${if (botOnline) "Aktif" else "Beklemede"})"
                     )
                 }
+                // Automatically sync remote records when live connection succeeds
+                if (!config.isLocalMode) {
+                    repository.syncWithServer(config)
+                }
             } else {
                 val err = result.exceptionOrNull()?.message ?: "Bağlantı kurulamadı"
                 _uiState.update {
@@ -284,6 +292,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         toastMessage = "🔴 Sunucu bağlantı hatası: $err"
                     )
                 }
+            }
+        }
+    }
+
+    fun syncWithServer() {
+        val config = _uiState.value.serverConfig
+        if (config.isLocalMode || !config.isLiveConnected) {
+            _uiState.update { it.copy(toastMessage = "Canlı sunucu bağlı değil. Önce bağlantıyı test edin.") }
+            return
+        }
+        viewModelScope.launch {
+            val res = repository.syncWithServer(config)
+            if (res.isSuccess) {
+                _uiState.update { it.copy(toastMessage = "🔄 Sunucu ile senkronize edildi.") }
+            } else {
+                _uiState.update { it.copy(toastMessage = "⚠️ Senkronizasyon hatası: ${res.exceptionOrNull()?.message}") }
             }
         }
     }

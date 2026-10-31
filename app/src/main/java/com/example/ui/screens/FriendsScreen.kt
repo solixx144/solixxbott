@@ -327,7 +327,7 @@ fun FriendsScreen(
                                 ) {
                                     Icon(imageVector = Icons.Default.History, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Geçmiş", fontSize = 11.sp)
+                                    Text("Geçmiş (${friend.submissionCount})", fontSize = 11.sp)
                                 }
 
                                 // Remove Authorization

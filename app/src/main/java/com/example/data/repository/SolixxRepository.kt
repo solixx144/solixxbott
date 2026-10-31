@@ -14,6 +14,7 @@ import com.example.data.model.SystemLog
 import com.example.data.remote.ApproveDto
 import com.example.data.remote.EditDto
 import com.example.data.remote.FriendCreateDto
+import com.example.data.remote.MediaItemDto
 import com.example.data.remote.NetworkClient
 import com.example.data.remote.RejectDto
 import kotlinx.coroutines.Dispatchers
@@ -224,13 +225,15 @@ class SolixxRepository(context: Context) {
                 } catch (_: Exception) {}
             }
 
+            val existing = friendDao.getFriendByTelegramId(telegramId)
             val entity = FriendEntity(
+                id = existing?.id ?: 0,
                 telegramId = telegramId,
-                username = cleanUsername,
+                username = cleanUsername ?: existing?.username,
                 displayName = cleanDisplay,
-                addedAt = timestamp,
+                addedAt = existing?.addedAt ?: timestamp,
                 isActive = true,
-                notes = notes
+                notes = notes ?: existing?.notes
             )
             friendDao.insert(entity)
 
@@ -324,6 +327,79 @@ class SolixxRepository(context: Context) {
         logDao.clearLogs()
     }
 
+    suspend fun syncWithServer(config: ServerConfig): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
+            val service = NetworkClient.getService(config.serverUrl)
+
+            // 1. Fetch remote announcements
+            val annRes = service.getAnnouncements(config.apiKey, adminTgHeader, "ALL")
+            if (annRes.isSuccessful && annRes.body() != null) {
+                val remoteAnns = annRes.body()!!
+                val entities = remoteAnns.map { dto ->
+                    AnnouncementEntity(
+                        id = dto.id,
+                        senderTelegramId = dto.senderTelegramId,
+                        senderUsername = dto.senderUsername,
+                        senderDisplayName = dto.senderDisplayName,
+                        contentType = dto.contentType,
+                        textContent = dto.textContent,
+                        mediaGroupId = dto.mediaGroupId,
+                        mediaItemsJson = mediaListToJson(dto.mediaItems),
+                        status = dto.status,
+                        createdAt = dto.createdAt,
+                        updatedAt = dto.updatedAt,
+                        publishedAt = dto.publishedAt,
+                        publishedMessageIdsJson = longListToJson(dto.publishedMessageIds),
+                        rejectionReason = dto.rejectionReason,
+                        adminNotes = dto.adminNotes,
+                        publishedBy = dto.publishedBy
+                    )
+                }
+                annDao.insertAll(entities)
+            }
+
+            // 2. Fetch remote friends
+            val friendRes = service.getFriends(config.apiKey, adminTgHeader)
+            if (friendRes.isSuccessful && friendRes.body() != null) {
+                val remoteFriends = friendRes.body()!!
+                val friendEntities = remoteFriends.map { dto ->
+                    FriendEntity(
+                        id = dto.id,
+                        telegramId = dto.telegramId,
+                        username = dto.username,
+                        displayName = dto.displayName,
+                        addedAt = dto.addedAt,
+                        isActive = dto.isActive == 1,
+                        notes = dto.notes
+                    )
+                }
+                friendDao.insertAll(friendEntities)
+            }
+
+            // 3. Fetch remote logs
+            val logRes = service.getLogs(config.apiKey, adminTgHeader)
+            if (logRes.isSuccessful && logRes.body() != null) {
+                val remoteLogs = logRes.body()!!
+                val logEntities = remoteLogs.map { dto ->
+                    LogEntity(
+                        id = dto.id,
+                        timestamp = dto.timestamp,
+                        level = dto.level,
+                        category = dto.category,
+                        message = dto.message,
+                        details = dto.details
+                    )
+                }
+                logDao.insertAll(logEntities)
+            }
+
+            Result.success(true)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     // Mapping helpers
     private fun AnnouncementEntity.toDomain(): Announcement {
         return Announcement(
@@ -403,5 +479,30 @@ class SolixxRepository(context: Context) {
             }
         } catch (_: Exception) {}
         return list
+    }
+
+    private fun mediaListToJson(items: List<MediaItemDto>): String {
+        val arr = JSONArray()
+        for (item in items) {
+            val obj = JSONObject()
+            obj.put("fileId", item.fileId)
+            obj.put("fileUniqueId", item.fileUniqueId)
+            obj.put("type", item.type)
+            obj.put("caption", item.caption)
+            item.width?.let { obj.put("width", it) }
+            item.height?.let { obj.put("height", it) }
+            item.duration?.let { obj.put("duration", it) }
+            item.fileSize?.let { obj.put("fileSize", it) }
+            arr.put(obj)
+        }
+        return arr.toString()
+    }
+
+    private fun longListToJson(ids: List<Long>): String {
+        val arr = JSONArray()
+        for (id in ids) {
+            arr.put(id)
+        }
+        return arr.toString()
     }
 }

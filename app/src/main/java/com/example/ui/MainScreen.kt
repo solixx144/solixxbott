@@ -93,7 +93,8 @@ fun MainScreen(
                     botOnline = state.stats.botConnected,
                     targetChannel = state.stats.targetChannel,
                     isLocalMode = state.serverConfig.isLocalMode,
-                    onTestClick = { viewModel.testConnection() }
+                    onTestClick = { viewModel.testConnection() },
+                    onSyncClick = { viewModel.syncWithServer() }
                 )
             },
             bottomBar = {

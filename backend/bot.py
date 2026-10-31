@@ -31,7 +31,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_auth = database.is_friend_authorized(user.id)
     if is_auth:
         database.update_friend_telegram_info(user.id, user.username, user.full_name or user.first_name)
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             f"👋 Merhaba {user.first_name}!\n\n"
             f"✅ **SolixxBot Yetkili Duyuru Arayüzü**\n"
             f"Telegram ID'niz: `{user.id}`\n\n"
@@ -44,7 +44,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             f"⚠️ **Erişim Kısıtlı**\n\n"
             f"Merhaba {user.first_name}. Telegram ID'niz: `{user.id}`\n\n"
             f"Bu bot yalnızca yetkilendirilmiş kişiler tarafından kullanılabilir. "
@@ -125,6 +125,15 @@ async def handle_incoming_message(update: Update, context: ContextTypes.DEFAULT_
             "caption": msg.caption or "",
             "duration": msg.voice.duration
         })
+
+    # Validate that content is not empty
+    if content_type == "TEXT" and not text_content.strip():
+        await msg.reply_text(
+            "⚠️ **Desteklenmeyen veya Boş İçerik**\n\n"
+            "Lütfen yayınlanmak üzere metin, fotoğraf, albüm, video veya ses kaydı gönderin.",
+            parse_mode="Markdown"
+        )
+        return
 
     # Save to SQLite database as PENDING
     announcement_id = database.create_announcement(
@@ -282,9 +291,17 @@ async def publish_announcement(announcement_id: int, published_by: str = "Admin"
                 else:
                     telegram_media.append(InputMediaPhoto(media=m["file_id"], caption=item_caption))
 
-            msgs = await bot.send_media_group(chat_id=channel, media=telegram_media)
-            for m in msgs:
-                sent_msg_ids.append(m.message_id)
+            if len(telegram_media) == 1:
+                item = media_items[0]
+                if item.get("type") == "video":
+                    msg = await bot.send_video(chat_id=channel, video=item["file_id"], caption=text)
+                else:
+                    msg = await bot.send_photo(chat_id=channel, photo=item["file_id"], caption=text)
+                sent_msg_ids.append(msg.message_id)
+            elif len(telegram_media) > 1:
+                msgs = await bot.send_media_group(chat_id=channel, media=telegram_media)
+                for m in msgs:
+                    sent_msg_ids.append(m.message_id)
 
         # Atomic commit in database
         success = database.approve_announcement_atomic(

@@ -90,7 +90,7 @@ fun HistoryScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                HistoryFilter.values().forEach { filter ->
+                HistoryFilter.entries.forEach { filter ->
                     val isSelected = state.historyFilter == filter
                     val count = when (filter) {
                         HistoryFilter.ALL -> state.allAnnouncements.size

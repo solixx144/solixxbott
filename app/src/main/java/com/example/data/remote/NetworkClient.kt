@@ -17,7 +17,13 @@ object NetworkClient {
         .build()
 
     fun getService(baseUrl: String): SolixxApiService {
-        val sanitizedUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
+        val trimmed = baseUrl.trim()
+        val withScheme = if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            "http://$trimmed"
+        } else {
+            trimmed
+        }
+        val sanitizedUrl = if (withScheme.endsWith("/")) withScheme else "$withScheme/"
         if (cachedService != null && currentUrl == sanitizedUrl) {
             return cachedService!!
         }

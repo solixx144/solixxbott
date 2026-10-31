@@ -121,10 +121,15 @@ def add_friend(telegram_id: int, display_name: Optional[str] = None, username: O
         cursor.execute("""
             INSERT INTO friends (telegram_id, username, display_name, added_at, is_active, notes)
             VALUES (?, ?, ?, ?, 1, ?)
+            ON CONFLICT(telegram_id) DO UPDATE SET
+                username = COALESCE(excluded.username, friends.username),
+                display_name = excluded.display_name,
+                is_active = 1,
+                notes = COALESCE(excluded.notes, friends.notes)
         """, (telegram_id, clean_username, clean_display, now, notes))
         friend_id = cursor.lastrowid
     conn.close()
-    add_log("INFO", "FRIENDS", f"Authorized new friend with Telegram ID: {telegram_id}", f"Username: {clean_username or 'None'}")
+    add_log("INFO", "FRIENDS", f"Authorized friend with Telegram ID: {telegram_id}", f"Username: {clean_username or 'None'}")
     return {"id": friend_id, "telegram_id": telegram_id, "display_name": clean_display, "username": clean_username}
 
 def update_friend_telegram_info(telegram_id: int, actual_username: Optional[str], actual_name: Optional[str]):
