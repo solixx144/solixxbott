@@ -1,0 +1,6 @@
+{
+  "name": "SolixxBot",
+  "description": "Telegram announcement submission, moderation, and publishing system for @SolixxTR",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
