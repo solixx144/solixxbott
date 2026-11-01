@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
@@ -40,6 +41,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,7 +76,7 @@ import com.example.ui.viewmodel.UiState
 @Composable
 fun SettingsScreen(
     state: UiState,
-    onSaveSettings: (url: String, apiKey: String, adminTgId: Long, isLocalMode: Boolean) -> Unit,
+    onSaveSettings: (url: String, apiKey: String, adminTgId: Long, targetChannel: String, isLocalMode: Boolean) -> Unit,
     onTestConnection: () -> Unit,
     onClearLogs: () -> Unit,
     onClearAllData: () -> Unit,
@@ -83,12 +85,22 @@ fun SettingsScreen(
     var serverUrl by remember { mutableStateOf(state.serverConfig.serverUrl) }
     var apiKey by remember { mutableStateOf(state.serverConfig.apiKey) }
     var adminTgIdText by remember { mutableStateOf(if (state.serverConfig.adminTelegramId > 0) state.serverConfig.adminTelegramId.toString() else "") }
+    var targetChannel by remember { mutableStateOf(state.serverConfig.targetChannel) }
     var isLocalMode by remember { mutableStateOf(state.serverConfig.isLocalMode) }
     var showTermuxGuide by remember { mutableStateOf(false) }
 
+    // Keep fields in sync with persistent DataStore state
+    LaunchedEffect(state.serverConfig) {
+        serverUrl = state.serverConfig.serverUrl
+        apiKey = state.serverConfig.apiKey
+        adminTgIdText = if (state.serverConfig.adminTelegramId > 0) state.serverConfig.adminTelegramId.toString() else ""
+        targetChannel = state.serverConfig.targetChannel
+        isLocalMode = state.serverConfig.isLocalMode
+    }
+
     fun triggerSave() {
         val tgId = adminTgIdText.trim().toLongOrNull() ?: 0L
-        onSaveSettings(serverUrl.trim(), apiKey.trim(), tgId, isLocalMode)
+        onSaveSettings(serverUrl.trim(), apiKey.trim(), tgId, targetChannel.trim(), isLocalMode)
     }
 
     LazyColumn(
@@ -107,7 +119,7 @@ fun SettingsScreen(
                 fontSize = 20.sp
             )
             Text(
-                text = "Telegram botu, yönetici kimliği ve veritabanı ayarları",
+                text = "Telegram botu, yönetici kimliği ve DataStore kalıcı ayarları",
                 color = TextMuted,
                 fontSize = 12.sp
             )
@@ -141,7 +153,7 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text("Hedef Telegram Kanalı", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text("@SolixxTR", color = TelegramBlue, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Text(targetChannel.ifBlank { "@SolixxTR" }, color = TelegramBlue, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             }
                         }
 
@@ -156,6 +168,28 @@ fun SettingsScreen(
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = targetChannel,
+                        onValueChange = {
+                            targetChannel = it
+                            triggerSave()
+                        },
+                        label = { Text("Kanal Kullanıcı Adı / ID", color = TextMuted, fontSize = 11.sp) },
+                        placeholder = { Text("@SolixxTR", color = TextMuted, fontSize = 12.sp) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("target_channel_input"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TelegramBlue,
+                            unfocusedBorderColor = BorderSubtle,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "• Bot bu kanalda yönetici olmalı ve 'Post Messages' yetkisine sahip olmalıdır.\n" +
                                "• Yetkili arkadaşların gönderdiği içerikler yalnızca sizin onayınızla bu kanala iletilir.",
@@ -339,6 +373,28 @@ fun SettingsScreen(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = { triggerSave() },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentPurpleLight),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("save_settings_button"),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Ayarları Kaydet (Kalıcı Sakla)", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = BackgroundNearBlack)
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "✓ Ayarlar Android DataStore ile cihazınızda kalıcı saklanır. Uygulama kapansa veya çökse bile sıfırlanmaz.",
+                        color = AccentEmerald,
+                        fontSize = 11.sp
+                    )
                 }
             }
         }

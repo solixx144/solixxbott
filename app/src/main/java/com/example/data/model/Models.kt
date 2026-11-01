@@ -33,10 +33,10 @@ data class Announcement(
 
 data class Friend(
     val id: Long = 0,
-    val telegramId: Long,
-    val username: String?,
-    val displayName: String,
-    val addedAt: String,
+    val telegramId: Long = 0,
+    val username: String? = null,
+    val displayName: String = "",
+    val addedAt: String = "",
     val isActive: Boolean = true,
     val notes: String? = null,
     val submissionCount: Int = 0
@@ -66,6 +66,7 @@ data class ServerConfig(
     val serverUrl: String = "http://10.0.2.2:8000",
     val apiKey: String = "",
     val adminTelegramId: Long = 0L,
+    val targetChannel: String = "@SolixxTR",
     val isLiveConnected: Boolean = false,
     val latencyMs: Long? = null,
     val isLocalMode: Boolean = true

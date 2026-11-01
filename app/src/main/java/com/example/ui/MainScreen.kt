@@ -159,8 +159,8 @@ fun MainScreen(
                         )
                         AppTab.SETTINGS -> SettingsScreen(
                             state = state,
-                            onSaveSettings = { url, key, adminId, local ->
-                                viewModel.updateServerSettings(url, key, adminId, local)
+                            onSaveSettings = { url, key, adminId, channel, local ->
+                                viewModel.updateServerSettings(url, key, adminId, channel, local)
                             },
                             onTestConnection = { viewModel.testConnection() },
                             onClearLogs = { viewModel.clearLogs() },

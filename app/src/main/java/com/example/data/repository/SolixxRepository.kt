@@ -27,6 +27,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
+import com.example.data.local.SettingsDataStore
 import java.util.Locale
 
 class SolixxRepository(context: Context) {
@@ -34,10 +35,14 @@ class SolixxRepository(context: Context) {
     private val annDao = db.announcementDao()
     private val friendDao = db.friendDao()
     private val logDao = db.logDao()
+    private val settingsDataStore = SettingsDataStore(context)
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
     private fun now(): String = dateFormat.format(Date())
+
+    // Persistent Server Configuration Flow
+    val serverConfigFlow: Flow<ServerConfig> = settingsDataStore.serverConfigFlow
 
     // Announcements Flow
     val announcementsFlow: Flow<List<Announcement>> = annDao.getAllAnnouncementsFlow()
@@ -54,14 +59,21 @@ class SolixxRepository(context: Context) {
         .map { list -> list.map { it.toDomain() } }
         .flowOn(Dispatchers.Default)
 
-    // Dashboard Stats Reactive Flow - strictly calculated from actual database records
+    // Dashboard Stats Reactive Flow - strictly calculated from actual database records and persistent settings
     val dashboardStatsFlow: Flow<DashboardStats> = combine(
         annDao.getTotalCountFlow(),
         annDao.getPendingCountFlow(),
         annDao.getPublishedCountFlow(),
         annDao.getRejectedCountFlow(),
-        friendDao.getActiveFriendsCountFlow()
-    ) { total, pending, published, rejected, friendsCount ->
+        friendDao.getActiveFriendsCountFlow(),
+        serverConfigFlow
+    ) { array: Array<Any?> ->
+        val total = array[0] as Int
+        val pending = array[1] as Int
+        val published = array[2] as Int
+        val rejected = array[3] as Int
+        val friendsCount = array[4] as Int
+        val config = array[5] as ServerConfig
         DashboardStats(
             totalAnnouncements = total,
             pendingAnnouncements = pending,
@@ -69,10 +81,24 @@ class SolixxRepository(context: Context) {
             rejectedAnnouncements = rejected,
             totalFriends = friendsCount,
             botConnected = true,
-            targetChannel = "@SolixxTR",
+            targetChannel = config.targetChannel,
             serverTime = now()
         )
     }.flowOn(Dispatchers.Default)
+
+    suspend fun saveSettings(
+        serverUrl: String,
+        apiKey: String,
+        adminTelegramId: Long,
+        targetChannel: String,
+        isLocalMode: Boolean
+    ) = withContext(Dispatchers.IO) {
+        settingsDataStore.updateSettings(serverUrl, apiKey, adminTelegramId, targetChannel, isLocalMode)
+    }
+
+    suspend fun clearSettings() = withContext(Dispatchers.IO) {
+        settingsDataStore.clearSettings()
+    }
 
     suspend fun approveAnnouncement(id: Long, config: ServerConfig): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
@@ -364,14 +390,15 @@ class SolixxRepository(context: Context) {
             if (friendRes.isSuccessful && friendRes.body() != null) {
                 val remoteFriends = friendRes.body()!!
                 val friendEntities = remoteFriends.map { dto ->
+                    val existing = friendDao.getFriendByTelegramId(dto.telegramId)
                     FriendEntity(
-                        id = dto.id,
+                        id = existing?.id ?: (dto.id ?: 0L),
                         telegramId = dto.telegramId,
-                        username = dto.username,
-                        displayName = dto.displayName,
-                        addedAt = dto.addedAt,
-                        isActive = dto.isActive == 1,
-                        notes = dto.notes
+                        username = dto.username ?: existing?.username,
+                        displayName = (dto.displayName ?: existing?.displayName ?: "User ${dto.telegramId}").ifBlank { "User ${dto.telegramId}" },
+                        addedAt = dto.addedAt ?: existing?.addedAt ?: now(),
+                        isActive = dto.isActive,
+                        notes = dto.notes ?: existing?.notes
                     )
                 }
                 friendDao.insertAll(friendEntities)

@@ -38,12 +38,12 @@ data class AnnouncementDto(
 
 @JsonClass(generateAdapter = true)
 data class FriendDto(
-    @Json(name = "id") val id: Long,
-    @Json(name = "telegram_id") val telegramId: Long,
+    @Json(name = "id") val id: Long? = 0L,
+    @Json(name = "telegram_id") val telegramId: Long = 0L,
     @Json(name = "username") val username: String? = null,
-    @Json(name = "display_name") val displayName: String,
-    @Json(name = "added_at") val addedAt: String,
-    @Json(name = "is_active") val isActive: Int,
+    @Json(name = "display_name") val displayName: String? = null,
+    @Json(name = "added_at") val addedAt: String? = null,
+    @Json(name = "is_active") val isActive: Boolean = true,
     @Json(name = "notes") val notes: String? = null,
     @Json(name = "submission_count") val submissionCount: Int? = 0
 )

@@ -1,6 +1,7 @@
 package com.example.data.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "announcements")
@@ -24,16 +25,19 @@ data class AnnouncementEntity(
     val publishedBy: String?
 )
 
-@Entity(tableName = "friends")
+@Entity(
+    tableName = "friends",
+    indices = [Index(value = ["telegramId"], unique = true)]
+)
 data class FriendEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val telegramId: Long,
-    val username: String?,
-    val displayName: String,
-    val addedAt: String,
-    val isActive: Boolean,
-    val notes: String?
+    val username: String? = null,
+    val displayName: String = "",
+    val addedAt: String = "",
+    val isActive: Boolean = true,
+    val notes: String? = null
 )
 
 @Entity(tableName = "system_logs")

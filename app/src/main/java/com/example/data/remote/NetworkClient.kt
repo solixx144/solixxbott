@@ -13,6 +13,8 @@ object NetworkClient {
     private var cachedService: SolixxApiService? = null
 
     private val moshi = Moshi.Builder()
+        .add(FlexibleBooleanAdapter())
+        .add(FlexibleLongAdapter())
         .add(KotlinJsonAdapterFactory())
         .build()
 

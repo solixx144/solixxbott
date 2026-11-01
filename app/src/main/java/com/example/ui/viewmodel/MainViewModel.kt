@@ -60,11 +60,14 @@ data class UiState(
         get() = allAnnouncements.filter { it.status == "REJECTED" }
 
     val filteredFriends: List<Friend>
-        get() = if (friendSearchQuery.isBlank()) friends
-        else friends.filter {
-            it.displayName.contains(friendSearchQuery, ignoreCase = true) ||
-            (it.username?.contains(friendSearchQuery, ignoreCase = true) == true) ||
-            it.telegramId.toString().contains(friendSearchQuery)
+        get() {
+            val list = friends.distinctBy { it.telegramId }
+            return if (friendSearchQuery.isBlank()) list
+            else list.filter {
+                it.displayName.contains(friendSearchQuery, ignoreCase = true) ||
+                (it.username?.contains(friendSearchQuery, ignoreCase = true) == true) ||
+                it.telegramId.toString().contains(friendSearchQuery)
+            }
         }
 
     val filteredHistory: List<Announcement>
@@ -94,17 +97,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.dashboardStatsFlow,
         repository.announcementsFlow,
         repository.friendsFlow,
-        repository.logsFlow
-    ) { current, stats, announcements, friends, logs ->
-        val friendsWithCount = friends.map { friend ->
-            val count = announcements.count { it.senderTelegramId == friend.telegramId }
-            friend.copy(submissionCount = count)
-        }
+        repository.logsFlow,
+        repository.serverConfigFlow
+    ) { flows: Array<Any?> ->
+        val current = flows[0] as UiState
+        val stats = flows[1] as DashboardStats
+        @Suppress("UNCHECKED_CAST")
+        val announcements = flows[2] as List<Announcement>
+        @Suppress("UNCHECKED_CAST")
+        val friends = flows[3] as List<Friend>
+        @Suppress("UNCHECKED_CAST")
+        val logs = flows[4] as List<SystemLog>
+        val config = flows[5] as ServerConfig
+
+        val friendsWithCount = friends
+            .distinctBy { it.telegramId }
+            .map { friend ->
+                val count = announcements.count { it.senderTelegramId == friend.telegramId }
+                friend.copy(submissionCount = count)
+            }
+
         current.copy(
             stats = stats,
             allAnnouncements = announcements,
             friends = friendsWithCount,
-            logs = logs
+            logs = logs,
+            serverConfig = current.serverConfig.copy(
+                serverUrl = config.serverUrl,
+                apiKey = config.apiKey,
+                adminTelegramId = config.adminTelegramId,
+                targetChannel = config.targetChannel,
+                isLocalMode = config.isLocalMode
+            )
         )
     }.stateIn(
         scope = viewModelScope,
@@ -246,16 +270,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Server Settings & Testing
-    fun updateServerSettings(url: String, apiKey: String, adminTgId: Long, isLocalMode: Boolean) {
-        _uiState.update {
-            it.copy(
-                serverConfig = it.serverConfig.copy(
-                    serverUrl = url,
-                    apiKey = apiKey,
-                    adminTelegramId = adminTgId,
-                    isLocalMode = isLocalMode
-                )
-            )
+    fun updateServerSettings(
+        url: String,
+        apiKey: String,
+        adminTgId: Long,
+        targetChannel: String = "@SolixxTR",
+        isLocalMode: Boolean
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.saveSettings(url, apiKey, adminTgId, targetChannel, isLocalMode)
+                _uiState.update {
+                    it.copy(
+                        serverConfig = it.serverConfig.copy(
+                            serverUrl = url,
+                            apiKey = apiKey,
+                            adminTelegramId = adminTgId,
+                            targetChannel = targetChannel,
+                            isLocalMode = isLocalMode
+                        ),
+                        toastMessage = "💾 Ayarlar kalıcı olarak kaydedildi."
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(toastMessage = "⚠️ Ayarlar kaydedilemedi: ${e.message}") }
+            }
+        }
+    }
+
+    fun resetSettingsToDefaults() {
+        viewModelScope.launch {
+            try {
+                repository.clearSettings()
+                _uiState.update { it.copy(toastMessage = "Ayarlar varsayılan değerlere sıfırlandı.") }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(toastMessage = "⚠️ Sıfırlama hatası: ${e.message}") }
+            }
         }
     }
 

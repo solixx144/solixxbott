@@ -130,7 +130,16 @@ def add_friend(telegram_id: int, display_name: Optional[str] = None, username: O
         friend_id = cursor.lastrowid
     conn.close()
     add_log("INFO", "FRIENDS", f"Authorized friend with Telegram ID: {telegram_id}", f"Username: {clean_username or 'None'}")
-    return {"id": friend_id, "telegram_id": telegram_id, "display_name": clean_display, "username": clean_username}
+    return {
+        "id": friend_id,
+        "telegram_id": telegram_id,
+        "display_name": clean_display,
+        "username": clean_username,
+        "added_at": now,
+        "is_active": True,
+        "notes": notes,
+        "submission_count": 0
+    }
 
 def update_friend_telegram_info(telegram_id: int, actual_username: Optional[str], actual_name: Optional[str]):
     """Sync real Telegram profile information when user interacts with bot."""

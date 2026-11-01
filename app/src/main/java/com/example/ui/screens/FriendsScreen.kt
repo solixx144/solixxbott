@@ -199,24 +199,42 @@ fun FriendsScreen(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceCard)
+                    colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                    shape = RoundedCornerShape(14.dp)
                 ) {
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
+                            .padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
                         Text(
                             text = if (state.friendSearchQuery.isBlank()) "Henüz yetkili arkadaş eklenmedi." else "Aramaya uygun arkadaş bulunamadı.",
                             color = TextMuted,
-                            fontSize = 13.sp
+                            fontSize = 14.sp
                         )
+                        if (state.friendSearchQuery.isBlank()) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Button(
+                                onClick = onAddFriendClick,
+                                colors = ButtonDefaults.buttonColors(containerColor = AccentPurple),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Yeni Arkadaş Ekle", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
                     }
                 }
             }
         } else {
-            items(state.filteredFriends, key = { it.telegramId }) { friend ->
+            items(state.filteredFriends, key = { "${it.id}_${it.telegramId}" }) { friend ->
+                val initialChar = friend.displayName.trim().takeIf { it.isNotEmpty() }?.take(1)?.uppercase() ?: "U"
+                val addedDateText = friend.addedAt.trim().takeIf { it.isNotEmpty() }?.take(10) ?: "Tarih yok"
+                val safeDisplayName = friend.displayName.ifBlank { "User ${friend.telegramId}" }
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -240,7 +258,7 @@ fun FriendsScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = friend.displayName.take(1).uppercase(),
+                                        text = initialChar,
                                         color = if (friend.isActive) AccentPurpleLight else TextMuted,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 18.sp
@@ -251,7 +269,7 @@ fun FriendsScreen(
 
                                 Column {
                                     Text(
-                                        text = friend.displayName,
+                                        text = safeDisplayName,
                                         color = if (friend.isActive) TextPrimary else TextMuted,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp
@@ -312,7 +330,7 @@ fun FriendsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Eklendi: ${friend.addedAt.take(10)}",
+                                text = "Eklendi: $addedDateText",
                                 color = TextMuted,
                                 fontSize = 10.sp
                             )
