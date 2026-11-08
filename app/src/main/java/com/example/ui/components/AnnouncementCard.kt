@@ -91,7 +91,7 @@ fun AnnouncementCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = announcement.senderDisplayName.take(1).uppercase(),
+                            text = announcement.senderDisplayName.trim().takeIf { it.isNotEmpty() }?.take(1)?.uppercase() ?: "U",
                             color = AccentPurpleLight,
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp

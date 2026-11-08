@@ -184,7 +184,7 @@ fun HistoryScreen(
                 }
             }
         } else {
-            items(state.filteredHistory, key = { it.id }) { ann ->
+            items(state.filteredHistory, key = { "hist_${it.id}_${it.createdAt}" }) { ann ->
                 AnnouncementCard(
                     announcement = ann,
                     onApprove = {},

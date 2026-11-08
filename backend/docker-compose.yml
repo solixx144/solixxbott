@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  solixxbot-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: solixxbot-backend
+    restart: always
+    ports:
+      - "8000:8000"
+    volumes:
+      - solixx_data:/app/data
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - TARGET_CHANNEL=${TARGET_CHANNEL:-@SolixxTR}
+      - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
+      - DATABASE_PATH=/app/data/solixx.db
+      - HOST=0.0.0.0
+      - PORT=8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  solixx_data:
+    driver: local

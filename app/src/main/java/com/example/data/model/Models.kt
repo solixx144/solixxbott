@@ -67,6 +67,8 @@ data class ServerConfig(
     val apiKey: String = "",
     val adminTelegramId: Long = 0L,
     val targetChannel: String = "@SolixxTR",
+    val notificationsEnabled: Boolean = true,
+    val autoSyncInterval: Int = 30,
     val isLiveConnected: Boolean = false,
     val latencyMs: Long? = null,
     val isLocalMode: Boolean = true

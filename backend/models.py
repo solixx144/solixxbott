@@ -13,7 +13,7 @@ class FriendResponse(BaseModel):
     username: Optional[str] = None
     display_name: str
     added_at: str
-    is_active: int
+    is_active: bool
     notes: Optional[str] = None
     submission_count: Optional[int] = 0
 

@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("BOT_TOKEN", "")
 TARGET_CHANNEL = os.getenv("TARGET_CHANNEL", "@SolixxTR")
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "0")) if os.getenv("ADMIN_TELEGRAM_ID", "").strip().isdigit() else 0

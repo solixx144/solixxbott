@@ -51,6 +51,7 @@ import com.example.ui.components.SolixxTopHeader
 import com.example.ui.components.TelegramPreviewDialog
 import com.example.ui.screens.AnnouncementsScreen
 import com.example.ui.screens.DashboardScreen
+import com.example.ui.screens.ErrorLogsScreen
 import com.example.ui.screens.FriendsScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.SettingsScreen
@@ -79,93 +80,111 @@ fun MainScreen(
         }
     }
 
+    // Back handler: if in error logs screen, return to previous
+    BackHandler(enabled = state.showingErrorLogsScreen) {
+        viewModel.closeErrorLogs()
+    }
+
     // Back handler: if not on DASHBOARD, tapping back returns to DASHBOARD
-    BackHandler(enabled = state.currentTab != AppTab.DASHBOARD) {
+    BackHandler(enabled = !state.showingErrorLogsScreen && state.currentTab != AppTab.DASHBOARD) {
         viewModel.setTab(AppTab.DASHBOARD)
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(BackgroundNearBlack)) {
         val isWideScreen = maxWidth >= 600.dp
 
-        Scaffold(
-            topBar = {
-                SolixxTopHeader(
-                    botOnline = state.stats.botConnected,
-                    targetChannel = state.stats.targetChannel,
-                    isLocalMode = state.serverConfig.isLocalMode,
-                    onTestClick = { viewModel.testConnection() },
-                    onSyncClick = { viewModel.syncWithServer() }
-                )
-            },
-            bottomBar = {
-                if (!isWideScreen) {
-                    SolixxBottomNavigation(
-                        currentTab = state.currentTab,
-                        pendingCount = state.pendingAnnouncements.size,
-                        onTabSelected = { viewModel.setTab(it) }
+        if (state.showingErrorLogsScreen) {
+            ErrorLogsScreen(
+                logs = state.logs,
+                onBackClick = { viewModel.closeErrorLogs() },
+                onClearLogs = { viewModel.clearLogs() },
+                onShowToast = { viewModel.showToast(it) }
+            )
+        } else {
+            Scaffold(
+                topBar = {
+                    SolixxTopHeader(
+                        botOnline = state.stats.botConnected,
+                        targetChannel = state.stats.targetChannel,
+                        isLocalMode = state.serverConfig.isLocalMode,
+                        onTestClick = { viewModel.testConnection() },
+                        onSyncClick = { viewModel.syncWithServer() }
                     )
-                }
-            },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            containerColor = BackgroundNearBlack
-        ) { paddingValues ->
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-            ) {
-                // Adaptive Navigation Rail for Tablets
-                if (isWideScreen) {
-                    SolixxNavigationRail(
-                        currentTab = state.currentTab,
-                        pendingCount = state.pendingAnnouncements.size,
-                        onTabSelected = { viewModel.setTab(it) }
-                    )
-                }
+                },
+                bottomBar = {
+                    if (!isWideScreen) {
+                        SolixxBottomNavigation(
+                            currentTab = state.currentTab,
+                            pendingCount = state.pendingAnnouncements.size,
+                            onTabSelected = { viewModel.setTab(it) }
+                        )
+                    }
+                },
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+                containerColor = BackgroundNearBlack
+            ) { paddingValues ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                ) {
+                    // Adaptive Navigation Rail for Tablets
+                    if (isWideScreen) {
+                        SolixxNavigationRail(
+                            currentTab = state.currentTab,
+                            pendingCount = state.pendingAnnouncements.size,
+                            onTabSelected = { viewModel.setTab(it) }
+                        )
+                    }
 
-                // Main Content Screen
-                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    when (state.currentTab) {
-                        AppTab.DASHBOARD -> DashboardScreen(
-                            state = state,
-                            onNavigateTab = { viewModel.setTab(it) },
-                            onApprove = { viewModel.approveAnnouncement(it) },
-                            onReject = { viewModel.openRejectDialog(it) },
-                            onEdit = { viewModel.openEditDialog(it) },
-                            onPreview = { viewModel.openPreviewDialog(it) },
-                            onAddFriendClick = { viewModel.openAddFriendDialog() },
-                            onTestPingClick = { viewModel.testConnection() }
-                        )
-                        AppTab.ANNOUNCEMENTS -> AnnouncementsScreen(
-                            state = state,
-                            onApprove = { viewModel.approveAnnouncement(it) },
-                            onReject = { viewModel.openRejectDialog(it) },
-                            onEdit = { viewModel.openEditDialog(it) },
-                            onPreview = { viewModel.openPreviewDialog(it) }
-                        )
-                        AppTab.FRIENDS -> FriendsScreen(
-                            state = state,
-                            onSearchChange = { viewModel.setFriendSearchQuery(it) },
-                            onAddFriendClick = { viewModel.openAddFriendDialog() },
-                            onRemoveFriend = { viewModel.removeFriend(it) },
-                            onToggleActive = { tgId, active -> viewModel.toggleFriendActive(tgId, active) },
-                            onViewHistory = { viewModel.viewFriendHistory(it) }
-                        )
-                        AppTab.HISTORY -> HistoryScreen(
-                            state = state,
-                            onFilterChange = { viewModel.setHistoryFilter(it) },
-                            onSearchChange = { viewModel.setSearchQuery(it) },
-                            onPreview = { viewModel.openPreviewDialog(it) }
-                        )
-                        AppTab.SETTINGS -> SettingsScreen(
-                            state = state,
-                            onSaveSettings = { url, key, adminId, channel, local ->
-                                viewModel.updateServerSettings(url, key, adminId, channel, local)
-                            },
-                            onTestConnection = { viewModel.testConnection() },
-                            onClearLogs = { viewModel.clearLogs() },
-                            onClearAllData = { viewModel.clearAllData() }
-                        )
+                    // Main Content Screen
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        when (state.currentTab) {
+                            AppTab.DASHBOARD -> DashboardScreen(
+                                state = state,
+                                onNavigateTab = { viewModel.setTab(it) },
+                                onApprove = { viewModel.approveAnnouncement(it) },
+                                onReject = { viewModel.openRejectDialog(it) },
+                                onEdit = { viewModel.openEditDialog(it) },
+                                onPreview = { viewModel.openPreviewDialog(it) },
+                                onAddFriendClick = { viewModel.openAddFriendDialog() },
+                                onTestPingClick = { viewModel.testConnection() },
+                                onSyncClick = { viewModel.syncWithServer() },
+                                onOpenErrorLogs = { viewModel.openErrorLogs() }
+                            )
+                            AppTab.ANNOUNCEMENTS -> AnnouncementsScreen(
+                                state = state,
+                                onApprove = { viewModel.approveAnnouncement(it) },
+                                onReject = { viewModel.openRejectDialog(it) },
+                                onEdit = { viewModel.openEditDialog(it) },
+                                onPreview = { viewModel.openPreviewDialog(it) },
+                                onSyncClick = { viewModel.syncWithServer() }
+                            )
+                            AppTab.FRIENDS -> FriendsScreen(
+                                state = state,
+                                onSearchChange = { viewModel.setFriendSearchQuery(it) },
+                                onAddFriendClick = { viewModel.openAddFriendDialog() },
+                                onRemoveFriend = { viewModel.removeFriend(it) },
+                                onToggleActive = { tgId, active -> viewModel.toggleFriendActive(tgId, active) },
+                                onViewHistory = { viewModel.viewFriendHistory(it) }
+                            )
+                            AppTab.HISTORY -> HistoryScreen(
+                                state = state,
+                                onFilterChange = { viewModel.setHistoryFilter(it) },
+                                onSearchChange = { viewModel.setSearchQuery(it) },
+                                onPreview = { viewModel.openPreviewDialog(it) }
+                            )
+                            AppTab.SETTINGS -> SettingsScreen(
+                                state = state,
+                                onSaveSettings = { url, key, adminId, channel, local, notif, interval ->
+                                    viewModel.updateServerSettings(url, key, adminId, channel, local, notif, interval)
+                                },
+                                onTestConnection = { viewModel.testConnection() },
+                                onClearLogs = { viewModel.clearLogs() },
+                                onClearAllData = { viewModel.clearAllData() },
+                                onOpenErrorLogs = { viewModel.openErrorLogs() }
+                            )
+                        }
                     }
                 }
             }

@@ -70,18 +70,49 @@ SolixxBot is a production-oriented Telegram announcement submission, moderation,
    ```
    The API will listen at `http://0.0.0.0:8000`.
 
-## Android Tablet Deployment (Termux)
+## 24/7 Cloud & Server Deployment (Kesintisiz Çalıştırma)
 
-To run the backend 24/7 on an Android tablet or phone without a computer:
+Backend ve Telegram botu Android uygulamasından bağımsız olarak **7 gün 24 saat** kesintisiz çalışabilir.
 
-1. Install **Termux** (from F-Droid or GitHub Releases).
-2. Clone or copy this repository to Termux.
-3. Make the script executable and run:
-   ```bash
-   chmod +x backend/run_termux.sh
-   ./backend/run_termux.sh
-   ```
-4. In the SolixxBot Android app Settings screen, enter `http://127.0.0.1:8000` (or `http://10.0.2.2:8000` on Android Emulator) and your Admin API Key.
+### Seçenek 1: Docker / Docker Compose (Tavsiye Edilen)
+Bulut sunucunuzda (Ubuntu/Debian VPS, Hetzner, AWS, DigitalOcean vb.):
+```bash
+cd backend
+cp .env.example .env
+# .env dosyasını bot tokeni ve admin bilgileriyle doldurun:
+nano .env
+
+# Docker compose ile arka planda 7/24 başlatın:
+docker compose up -d --build
+
+# Durumu ve logları kontrol edin:
+docker compose logs -f
+```
+
+### Seçenek 2: Linux VPS Systemd Servisi (Otomatik Yeniden Başlatma)
+```bash
+sudo cp backend/systemd/solixxbot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable solixxbot
+sudo systemctl start solixxbot
+
+# Servis durumunu kontrol edin:
+sudo systemctl status solixxbot
+```
+
+### Seçenek 3: Bulut Sağlayıcılar (Railway / Render / Fly.io)
+1. Bu depoyu GitHub'a yükleyin.
+2. Railway veya Render üzerinde **New Web Service** seçin.
+3. Root Directory: `backend` belirleyin.
+4. Çevre değişkenlerini (`BOT_TOKEN`, `TARGET_CHANNEL`, `ADMIN_API_KEY`, `ADMIN_TELEGRAM_ID`) tanımlayın.
+5. Dağıtılan genel URL'yi (örn: `https://solixxbot.up.railway.app`) Android uygulamasının Ayarlar bölümüne girin.
+
+### Seçenek 4: Android Cihaz / Tablet Üzerinde 24/7 (Termux)
+Harici bir bilgisayara ihtiyaç duymadan eski bir Android telefon veya tableti 7/24 sunucuya dönüştürmek için:
+1. **Termux** kurun (F-Droid üzerinden).
+2. Arka plan pil kısıtlamasını kaldırın (Termux -> App Info -> Battery Unrestricted).
+3. `chmod +x backend/run_termux.sh && ./backend/run_termux.sh` çalıştırın.
+4. Android uygulamasında `http://127.0.0.1:8000` (veya yerel Wi-Fi IP'si) adresini girin.
 
 ## REST API Reference
 

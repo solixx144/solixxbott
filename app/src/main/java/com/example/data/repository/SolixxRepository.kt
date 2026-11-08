@@ -91,9 +91,14 @@ class SolixxRepository(context: Context) {
         apiKey: String,
         adminTelegramId: Long,
         targetChannel: String,
-        isLocalMode: Boolean
+        isLocalMode: Boolean,
+        notificationsEnabled: Boolean = true,
+        autoSyncInterval: Int = 30
     ) = withContext(Dispatchers.IO) {
-        settingsDataStore.updateSettings(serverUrl, apiKey, adminTelegramId, targetChannel, isLocalMode)
+        settingsDataStore.updateSettings(
+            serverUrl, apiKey, adminTelegramId, targetChannel, isLocalMode,
+            notificationsEnabled, autoSyncInterval
+        )
     }
 
     suspend fun clearSettings() = withContext(Dispatchers.IO) {
@@ -423,6 +428,7 @@ class SolixxRepository(context: Context) {
 
             Result.success(true)
         } catch (e: Exception) {
+            com.example.data.logger.AppErrorLogger.logError("SYNC", "Sunucu senkronizasyon hatası: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -492,7 +498,9 @@ class SolixxRepository(context: Context) {
                     )
                 )
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            com.example.data.logger.AppErrorLogger.logJsonParseError("mediaItemsJson", jsonStr, e)
+        }
         return list
     }
 
@@ -504,7 +512,9 @@ class SolixxRepository(context: Context) {
             for (i in 0 until array.length()) {
                 list.add(array.getLong(i))
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            com.example.data.logger.AppErrorLogger.logJsonParseError("publishedMessageIdsJson", jsonStr, e)
+        }
         return list
     }
 

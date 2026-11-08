@@ -10,6 +10,7 @@ import com.example.ui.theme.SolixxBotTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.data.logger.AppErrorLogger.initialize(this)
         enableEdgeToEdge()
         setContent {
             SolixxBotTheme {

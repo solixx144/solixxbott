@@ -19,14 +19,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -34,6 +39,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -42,6 +48,8 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,10 +84,11 @@ import com.example.ui.viewmodel.UiState
 @Composable
 fun SettingsScreen(
     state: UiState,
-    onSaveSettings: (url: String, apiKey: String, adminTgId: Long, targetChannel: String, isLocalMode: Boolean) -> Unit,
+    onSaveSettings: (url: String, apiKey: String, adminTgId: Long, targetChannel: String, isLocalMode: Boolean, notificationsEnabled: Boolean, autoSyncInterval: Int) -> Unit,
     onTestConnection: () -> Unit,
     onClearLogs: () -> Unit,
     onClearAllData: () -> Unit,
+    onOpenErrorLogs: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var serverUrl by remember { mutableStateOf(state.serverConfig.serverUrl) }
@@ -87,6 +96,9 @@ fun SettingsScreen(
     var adminTgIdText by remember { mutableStateOf(if (state.serverConfig.adminTelegramId > 0) state.serverConfig.adminTelegramId.toString() else "") }
     var targetChannel by remember { mutableStateOf(state.serverConfig.targetChannel) }
     var isLocalMode by remember { mutableStateOf(state.serverConfig.isLocalMode) }
+    var notificationsEnabled by remember { mutableStateOf(state.serverConfig.notificationsEnabled) }
+    var autoSyncInterval by remember { mutableStateOf(state.serverConfig.autoSyncInterval) }
+    var showApiKey by remember { mutableStateOf(false) }
     var showTermuxGuide by remember { mutableStateOf(false) }
 
     // Keep fields in sync with persistent DataStore state
@@ -96,11 +108,21 @@ fun SettingsScreen(
         adminTgIdText = if (state.serverConfig.adminTelegramId > 0) state.serverConfig.adminTelegramId.toString() else ""
         targetChannel = state.serverConfig.targetChannel
         isLocalMode = state.serverConfig.isLocalMode
+        notificationsEnabled = state.serverConfig.notificationsEnabled
+        autoSyncInterval = state.serverConfig.autoSyncInterval
     }
 
     fun triggerSave() {
         val tgId = adminTgIdText.trim().toLongOrNull() ?: 0L
-        onSaveSettings(serverUrl.trim(), apiKey.trim(), tgId, targetChannel.trim(), isLocalMode)
+        onSaveSettings(
+            serverUrl.trim(),
+            apiKey.trim(),
+            tgId,
+            targetChannel.trim(),
+            isLocalMode,
+            notificationsEnabled,
+            autoSyncInterval
+        )
     }
 
     LazyColumn(
@@ -319,6 +341,16 @@ fun SettingsScreen(
                             triggerSave()
                         },
                         placeholder = { Text("Sunucu admin secret anahtarını girin", color = TextMuted, fontSize = 12.sp) },
+                        visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showApiKey = !showApiKey }) {
+                                Icon(
+                                    imageVector = if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = if (showApiKey) "Gizle" else "Göster",
+                                    tint = TextMuted
+                                )
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("admin_api_key_input"),
@@ -399,7 +431,129 @@ fun SettingsScreen(
             }
         }
 
-        // 3. Termux Android Deployment Guide (Expandable)
+        // 3. Bildirimler & 7/24 Arka Plan Senkronizasyonu
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, BorderSubtle, RoundedCornerShape(14.dp)),
+                colors = CardDefaults.cardColors(containerColor = SurfaceCard)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(AccentPurpleContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Notifications,
+                                    contentDescription = null,
+                                    tint = AccentPurpleLight,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Bildirimler & 7/24 Senkronizasyon",
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    "Arka plan yenileme ve anlık uyarılar",
+                                    color = TextMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = notificationsEnabled,
+                            onCheckedChange = {
+                                notificationsEnabled = it
+                                triggerSave()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = AccentPurpleLight,
+                                checkedTrackColor = AccentPurpleContainer
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = BorderSubtle, thickness = 0.5.dp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Otomatik Yenileme Sıklığı:",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val intervals = listOf(
+                        15 to "15 sn",
+                        30 to "30 sn",
+                        60 to "1 dk",
+                        300 to "5 dk"
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        intervals.forEach { (seconds, label) ->
+                            val isSelected = autoSyncInterval == seconds
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) AccentPurpleContainer else SurfaceVariantDark)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isSelected) AccentPurpleLight else BorderSubtle,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable {
+                                        autoSyncInterval = seconds
+                                        triggerSave()
+                                    }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    color = if (isSelected) AccentPurpleLight else TextSecondary,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "• Arka plan botu bağımsız olarak 7/24 çalışır. Uygulama açıkken bu periyotla bekleyen duyuruları ve bot durumunu otomatik senkronize eder.",
+                        color = TextMuted,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+        }
+
+        // 4. Termux Android Deployment Guide (Expandable)
         item {
             Card(
                 modifier = Modifier
@@ -546,22 +700,41 @@ fun SettingsScreen(
 
         // 5. System Audit Logs Viewer
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Sistem Denetim Logları",
-                    color = TextPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-                Text(
-                    text = "${state.logs.size} Kayıt",
-                    color = TextMuted,
-                    fontSize = 11.sp
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Sistem Denetim Logları",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        text = "${state.logs.size} Kayıt",
+                        color = TextMuted,
+                        fontSize = 11.sp
+                    )
+                }
+
+                Button(
+                    onClick = onOpenErrorLogs,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("open_error_logs_btn"),
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentPurple),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.BugReport, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Ayrıntılı Hata Günlüğünü Aç (Ağ, API, JSON)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
             }
         }
 

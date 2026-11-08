@@ -19,12 +19,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -46,15 +51,19 @@ import com.example.data.model.Announcement
 import com.example.ui.components.AnnouncementCard
 import com.example.ui.components.MetricStatCard
 import com.example.ui.theme.AccentAmber
+import com.example.ui.theme.AccentAmberContainer
 import com.example.ui.theme.AccentEmerald
+import com.example.ui.theme.AccentEmeraldContainer
 import com.example.ui.theme.AccentPurple
 import com.example.ui.theme.AccentPurpleContainer
 import com.example.ui.theme.AccentPurpleLight
 import com.example.ui.theme.AccentRose
+import com.example.ui.theme.AccentRoseContainer
 import com.example.ui.theme.BackgroundNearBlack
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.SurfaceCard
 import com.example.ui.theme.SurfaceVariantDark
+import com.example.ui.theme.TelegramBlue
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
@@ -71,6 +80,8 @@ fun DashboardScreen(
     onPreview: (Announcement) -> Unit,
     onAddFriendClick: () -> Unit,
     onTestPingClick: () -> Unit,
+    onSyncClick: () -> Unit = {},
+    onOpenErrorLogs: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -127,6 +138,311 @@ fun DashboardScreen(
                                 fontWeight = FontWeight.Black
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // Live Server & Telegram Bot Status Cards (Real API Connection Status)
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 1. Sunucu Durumu Kartı
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .border(1.dp, BorderSubtle, RoundedCornerShape(16.dp))
+                        .testTag("server_status_card"),
+                    colors = CardDefaults.cardColors(containerColor = SurfaceCard)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (state.serverConfig.isLiveConnected) AccentEmeraldContainer
+                                            else if (state.serverConfig.isLocalMode) AccentAmberContainer
+                                            else AccentRoseContainer
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Storage,
+                                        contentDescription = "Server",
+                                        tint = if (state.serverConfig.isLiveConnected) AccentEmerald
+                                        else if (state.serverConfig.isLocalMode) AccentAmber
+                                        else AccentRose,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Sunucu Durumu",
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (state.serverConfig.isLiveConnected) AccentEmeraldContainer
+                                        else if (state.serverConfig.isLocalMode) AccentAmberContainer
+                                        else AccentRoseContainer
+                                    )
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = if (state.serverConfig.isLiveConnected) "CANLI"
+                                    else if (state.serverConfig.isLocalMode) "YEREL"
+                                    else "KAPALI",
+                                    color = if (state.serverConfig.isLiveConnected) AccentEmerald
+                                    else if (state.serverConfig.isLocalMode) AccentAmber
+                                    else AccentRose,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = state.serverConfig.serverUrl.replace("http://", "").replace("https://", ""),
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (state.serverConfig.latencyMs != null) "Gecikme: ${state.serverConfig.latencyMs}ms" else "SQLite WAL Aktif",
+                                color = if (state.serverConfig.latencyMs != null) AccentEmerald else TextMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(AccentPurpleContainer)
+                                    .clickable { onTestPingClick() }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Speed,
+                                        contentDescription = null,
+                                        tint = AccentPurpleLight,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = if (state.isTestingConnection) "..." else "Ping",
+                                        color = AccentPurpleLight,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Telegram Bot Bağlantısı Kartı
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .border(1.dp, BorderSubtle, RoundedCornerShape(16.dp))
+                        .testTag("bot_status_card"),
+                    colors = CardDefaults.cardColors(containerColor = SurfaceCard)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(TelegramBlue.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Send,
+                                        contentDescription = "Bot",
+                                        tint = TelegramBlue,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Telegram Bot",
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (state.stats.botConnected) AccentEmeraldContainer else AccentRoseContainer)
+                                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = if (state.stats.botConnected) "AKTİF" else "BEKLEMEDE",
+                                    color = if (state.stats.botConnected) AccentEmerald else AccentRose,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Public,
+                                contentDescription = null,
+                                tint = TelegramBlue,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = state.stats.targetChannel.ifBlank { "@SolixxTR" },
+                                color = TelegramBlue,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = if (state.serverConfig.adminTelegramId > 0) "Yönetici ID: ${state.serverConfig.adminTelegramId}" else "Admin ID Girilmeli",
+                            color = TextMuted,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+
+        // Centralized Error Logger & Diagnostics Card
+        item {
+            val errorCount = state.logs.count { it.level == "ERROR" }
+            val networkCount = state.logs.count { it.category == "NETWORK" }
+            val apiCount = state.logs.count { it.category == "API" }
+            val jsonCount = state.logs.count { it.category == "JSON_PARSE" }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .border(
+                        1.dp,
+                        if (errorCount > 0) AccentRose.copy(alpha = 0.5f) else BorderSubtle,
+                        RoundedCornerShape(16.dp)
+                    )
+                    .clickable { onOpenErrorLogs() }
+                    .testTag("error_logger_dashboard_card"),
+                colors = CardDefaults.cardColors(containerColor = SurfaceCard)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(if (errorCount > 0) AccentRoseContainer else AccentEmeraldContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (errorCount > 0) Icons.Default.BugReport else Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = if (errorCount > 0) AccentRose else AccentEmerald,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Sistem & Hata İzleme Günlüğü",
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                                if (errorCount > 0) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(AccentRose)
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "$errorCount HATA",
+                                            color = BackgroundNearBlack,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 9.sp
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = if (errorCount > 0)
+                                    "Ağ: $networkCount • API: $apiCount • JSON: $jsonCount (İncelemek için dokunun)"
+                                else
+                                    "Tüm API, ağ ve JSON akışları sorunsuz çalışıyor",
+                                color = if (errorCount > 0) AccentRose.copy(alpha = 0.9f) else TextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(AccentPurpleContainer)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text("Görüntüle", color = AccentPurpleLight, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

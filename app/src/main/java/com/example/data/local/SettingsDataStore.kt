@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -25,10 +26,14 @@ class SettingsDataStore(private val context: Context) {
         val KEY_ADMIN_TELEGRAM_ID = longPreferencesKey("admin_telegram_id")
         val KEY_TARGET_CHANNEL = stringPreferencesKey("target_channel")
         val KEY_IS_LOCAL_MODE = booleanPreferencesKey("is_local_mode")
+        val KEY_NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
+        val KEY_AUTO_SYNC_INTERVAL = intPreferencesKey("auto_sync_interval")
 
         const val DEFAULT_SERVER_URL = "http://10.0.2.2:8000"
         const val DEFAULT_TARGET_CHANNEL = "@SolixxTR"
         const val DEFAULT_LOCAL_MODE = true
+        const val DEFAULT_NOTIFICATIONS_ENABLED = true
+        const val DEFAULT_AUTO_SYNC_INTERVAL = 30
     }
 
     val serverConfigFlow: Flow<ServerConfig> = context.dataStore.data
@@ -45,6 +50,8 @@ class SettingsDataStore(private val context: Context) {
                 apiKey = preferences[KEY_API_KEY] ?: "",
                 adminTelegramId = preferences[KEY_ADMIN_TELEGRAM_ID] ?: 0L,
                 targetChannel = preferences[KEY_TARGET_CHANNEL] ?: DEFAULT_TARGET_CHANNEL,
+                notificationsEnabled = preferences[KEY_NOTIFICATIONS_ENABLED] ?: DEFAULT_NOTIFICATIONS_ENABLED,
+                autoSyncInterval = preferences[KEY_AUTO_SYNC_INTERVAL] ?: DEFAULT_AUTO_SYNC_INTERVAL,
                 isLiveConnected = false,
                 latencyMs = null,
                 isLocalMode = preferences[KEY_IS_LOCAL_MODE] ?: DEFAULT_LOCAL_MODE
@@ -56,7 +63,9 @@ class SettingsDataStore(private val context: Context) {
         apiKey: String,
         adminTelegramId: Long,
         targetChannel: String,
-        isLocalMode: Boolean
+        isLocalMode: Boolean,
+        notificationsEnabled: Boolean = true,
+        autoSyncInterval: Int = 30
     ) {
         context.dataStore.edit { preferences ->
             preferences[KEY_SERVER_URL] = serverUrl.trim()
@@ -64,6 +73,8 @@ class SettingsDataStore(private val context: Context) {
             preferences[KEY_ADMIN_TELEGRAM_ID] = adminTelegramId
             preferences[KEY_TARGET_CHANNEL] = if (targetChannel.trim().isNotEmpty()) targetChannel.trim() else DEFAULT_TARGET_CHANNEL
             preferences[KEY_IS_LOCAL_MODE] = isLocalMode
+            preferences[KEY_NOTIFICATIONS_ENABLED] = notificationsEnabled
+            preferences[KEY_AUTO_SYNC_INTERVAL] = autoSyncInterval
         }
     }
 

@@ -9,27 +9,30 @@ import com.example.data.model.Friend
 import com.example.data.model.ServerConfig
 import com.example.data.model.SystemLog
 import com.example.data.repository.SolixxRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 enum class AppTab(val title: String) {
-    DASHBOARD("Dashboard"),
-    ANNOUNCEMENTS("Announcements"),
-    FRIENDS("Friends"),
-    HISTORY("History"),
-    SETTINGS("Settings")
+    DASHBOARD("Panel"),
+    ANNOUNCEMENTS("Onay Sırası"),
+    FRIENDS("Arkadaşlar"),
+    HISTORY("Geçmiş"),
+    SETTINGS("Ayarlar")
 }
 
 enum class HistoryFilter(val label: String) {
-    ALL("All"),
-    PUBLISHED("Published"),
-    REJECTED("Rejected"),
-    PENDING("Pending")
+    ALL("Tümü"),
+    PUBLISHED("Yayımlanan"),
+    REJECTED("Reddedilen"),
+    PENDING("Bekleyen")
 }
 
 data class UiState(
@@ -48,6 +51,7 @@ data class UiState(
     val showingAddFriendDialog: Boolean = false,
     val viewingFriendHistory: Friend? = null,
     val isTestingConnection: Boolean = false,
+    val showingErrorLogsScreen: Boolean = false,
     val toastMessage: String? = null
 ) {
     val pendingAnnouncements: List<Announcement>
@@ -127,6 +131,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 apiKey = config.apiKey,
                 adminTelegramId = config.adminTelegramId,
                 targetChannel = config.targetChannel,
+                notificationsEnabled = config.notificationsEnabled,
+                autoSyncInterval = config.autoSyncInterval,
                 isLocalMode = config.isLocalMode
             )
         )
@@ -135,6 +141,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = UiState()
     )
+
+    init {
+        viewModelScope.launch {
+            repository.serverConfigFlow.collectLatest { config ->
+                if (!config.isLocalMode && config.serverUrl.isNotBlank()) {
+                    checkServerSilently(config)
+
+                    val intervalSeconds = config.autoSyncInterval.coerceAtLeast(10)
+                    while (isActive) {
+                        delay(intervalSeconds * 1000L)
+                        val currentCfg = uiState.value.serverConfig
+                        if (!currentCfg.isLocalMode && currentCfg.serverUrl.isNotBlank()) {
+                            checkServerSilently(currentCfg)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun checkServerSilently(config: ServerConfig) {
+        try {
+            val result = repository.testServerConnection(config.serverUrl, config.apiKey)
+            if (result.isSuccess) {
+                val (botOnline, latency) = result.getOrThrow()
+                _uiState.update {
+                    it.copy(
+                        serverConfig = it.serverConfig.copy(
+                            isLiveConnected = true,
+                            latencyMs = latency
+                        )
+                    )
+                }
+                repository.syncWithServer(config)
+            } else {
+                _uiState.update {
+                    it.copy(
+                        serverConfig = it.serverConfig.copy(
+                            isLiveConnected = false,
+                            latencyMs = null
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {}
+    }
 
     fun setTab(tab: AppTab) {
         _uiState.update { it.copy(currentTab = tab) }
@@ -155,7 +207,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Moderation Actions
     fun approveAnnouncement(announcement: Announcement) {
         viewModelScope.launch {
-            val config = _uiState.value.serverConfig
+            val config = uiState.value.serverConfig
             val result = repository.approveAnnouncement(announcement.id, config)
             if (result.isSuccess) {
                 _uiState.update { it.copy(toastMessage = "✅ Duyuru onaylandı ve @SolixxTR kanalında paylaşıldı.") }
@@ -177,7 +229,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val ann = _uiState.value.rejectingAnnouncement ?: return
         closeRejectDialog()
         viewModelScope.launch {
-            val config = _uiState.value.serverConfig
+            val config = uiState.value.serverConfig
             val result = repository.rejectAnnouncement(ann.id, reason, notes, config)
             if (result.isSuccess) {
                 _uiState.update { it.copy(toastMessage = "❌ Duyuru reddedildi ve kullanıcıya gerekçe bildirildi.") }
@@ -199,7 +251,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val ann = _uiState.value.editingAnnouncement ?: return
         closeEditDialog()
         viewModelScope.launch {
-            val config = _uiState.value.serverConfig
+            val config = uiState.value.serverConfig
             val result = repository.editAnnouncement(ann.id, newText, notes, config)
             if (result.isSuccess) {
                 _uiState.update { it.copy(toastMessage = "✏️ Duyuru içeriği güncellendi.") }
@@ -229,7 +281,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun confirmAddFriend(telegramId: Long, displayName: String?, username: String?, notes: String?) {
         closeAddFriendDialog()
         viewModelScope.launch {
-            val config = _uiState.value.serverConfig
+            val config = uiState.value.serverConfig
             val result = repository.addFriend(telegramId, displayName, username, notes, config)
             if (result.isSuccess) {
                 _uiState.update { it.copy(toastMessage = "👤 Yetkili arkadaş başarıyla eklendi.") }
@@ -241,7 +293,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun removeFriend(telegramId: Long) {
         viewModelScope.launch {
-            val config = _uiState.value.serverConfig
+            val config = uiState.value.serverConfig
             val result = repository.removeFriend(telegramId, config)
             if (result.isSuccess) {
                 _uiState.update { it.copy(toastMessage = "🗑️ Arkadaş yetkisi kaldırıldı.") }
@@ -253,7 +305,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleFriendActive(telegramId: Long, isActive: Boolean) {
         viewModelScope.launch {
-            val config = _uiState.value.serverConfig
+            val config = uiState.value.serverConfig
             val result = repository.toggleFriendActive(telegramId, isActive, config)
             if (result.isSuccess) {
                 _uiState.update { it.copy(toastMessage = if (isActive) "Arkadaş aktif edildi" else "Arkadaş pasif yapıldı") }
@@ -275,11 +327,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         apiKey: String,
         adminTgId: Long,
         targetChannel: String = "@SolixxTR",
-        isLocalMode: Boolean
+        isLocalMode: Boolean,
+        notificationsEnabled: Boolean = true,
+        autoSyncInterval: Int = 30
     ) {
         viewModelScope.launch {
             try {
-                repository.saveSettings(url, apiKey, adminTgId, targetChannel, isLocalMode)
+                repository.saveSettings(
+                    url, apiKey, adminTgId, targetChannel, isLocalMode,
+                    notificationsEnabled, autoSyncInterval
+                )
                 _uiState.update {
                     it.copy(
                         serverConfig = it.serverConfig.copy(
@@ -287,6 +344,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             apiKey = apiKey,
                             adminTelegramId = adminTgId,
                             targetChannel = targetChannel,
+                            notificationsEnabled = notificationsEnabled,
+                            autoSyncInterval = autoSyncInterval,
                             isLocalMode = isLocalMode
                         ),
                         toastMessage = "💾 Ayarlar kalıcı olarak kaydedildi."
@@ -310,7 +369,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun testConnection() {
-        val config = _uiState.value.serverConfig
+        val config = uiState.value.serverConfig
         _uiState.update { it.copy(isTestingConnection = true) }
         viewModelScope.launch {
             val result = repository.testServerConnection(config.serverUrl, config.apiKey)
@@ -347,7 +406,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun syncWithServer() {
-        val config = _uiState.value.serverConfig
+        val config = uiState.value.serverConfig
         if (config.isLocalMode || !config.isLiveConnected) {
             _uiState.update { it.copy(toastMessage = "Canlı sunucu bağlı değil. Önce bağlantıyı test edin.") }
             return
@@ -371,7 +430,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearAllData() {
         viewModelScope.launch {
-            val config = _uiState.value.serverConfig
+            val config = uiState.value.serverConfig
             repository.clearAllData(config)
             _uiState.update { it.copy(toastMessage = "Tüm veritabanı kayıtları temizlendi.") }
         }
@@ -379,5 +438,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissToast() {
         _uiState.update { it.copy(toastMessage = null) }
+    }
+
+    fun openErrorLogs() {
+        _uiState.update { it.copy(showingErrorLogsScreen = true) }
+    }
+
+    fun closeErrorLogs() {
+        _uiState.update { it.copy(showingErrorLogsScreen = false) }
+    }
+
+    fun showToast(message: String) {
+        _uiState.update { it.copy(toastMessage = message) }
     }
 }
