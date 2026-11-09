@@ -648,7 +648,8 @@ fun DashboardScreen(
                     onApprove = onApprove,
                     onReject = onReject,
                     onEdit = onEdit,
-                    onPreview = onPreview
+                    onPreview = onPreview,
+                    serverUrl = state.serverConfig.serverUrl
                 )
             }
         }

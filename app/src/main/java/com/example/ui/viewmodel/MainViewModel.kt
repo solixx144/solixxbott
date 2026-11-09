@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.model.Announcement
 import com.example.data.model.DashboardStats
 import com.example.data.model.Friend
+import com.example.data.model.MediaItem
 import com.example.data.model.ServerConfig
 import com.example.data.model.SystemLog
 import com.example.data.repository.SolixxRepository
@@ -247,14 +248,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(editingAnnouncement = null) }
     }
 
-    fun confirmEdit(newText: String, notes: String?) {
+    fun confirmEdit(newText: String, notes: String?, mediaItems: List<MediaItem>? = null) {
         val ann = _uiState.value.editingAnnouncement ?: return
         closeEditDialog()
         viewModelScope.launch {
             val config = uiState.value.serverConfig
-            val result = repository.editAnnouncement(ann.id, newText, notes, config)
+            val result = repository.editAnnouncement(ann.id, newText, notes, mediaItems, config)
             if (result.isSuccess) {
-                _uiState.update { it.copy(toastMessage = "✏️ Duyuru içeriği güncellendi.") }
+                _uiState.update { it.copy(toastMessage = "✏️ Duyuru içeriği ve medyaları güncellendi.") }
             } else {
                 _uiState.update { it.copy(toastMessage = "⚠️ Düzenleme hatası: ${result.exceptionOrNull()?.message}") }
             }

@@ -1,0 +1,594 @@
+package com.example.phone.data.repository
+
+import android.content.Context
+import com.example.phone.data.local.AnnouncementEntity
+import com.example.phone.data.local.FriendEntity
+import com.example.phone.data.local.LogEntity
+import com.example.phone.data.local.SolixxDatabase
+import com.example.phone.data.model.Announcement
+import com.example.phone.data.model.DashboardStats
+import com.example.phone.data.model.Friend
+import com.example.phone.data.model.MediaItem
+import com.example.phone.data.model.ServerConfig
+import com.example.phone.data.model.SystemLog
+import com.example.phone.data.remote.ApproveDto
+import com.example.phone.data.remote.EditDto
+import com.example.phone.data.remote.FriendCreateDto
+import com.example.phone.data.remote.MediaItemDto
+import com.example.phone.data.remote.NetworkClient
+import com.example.phone.data.remote.RejectDto
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import com.example.phone.data.local.SettingsDataStore
+import java.util.Locale
+
+class SolixxRepository(context: Context) {
+    private val db = SolixxDatabase.getInstance(context)
+    private val annDao = db.announcementDao()
+    private val friendDao = db.friendDao()
+    private val logDao = db.logDao()
+    private val settingsDataStore = SettingsDataStore(context)
+
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+
+    private fun now(): String = dateFormat.format(Date())
+
+    // Persistent Server Configuration Flow
+    val serverConfigFlow: Flow<ServerConfig> = settingsDataStore.serverConfigFlow
+
+    // Announcements Flow
+    val announcementsFlow: Flow<List<Announcement>> = annDao.getAllAnnouncementsFlow()
+        .map { list -> list.map { it.toDomain() } }
+        .flowOn(Dispatchers.Default)
+
+    // Friends Flow
+    val friendsFlow: Flow<List<Friend>> = friendDao.getAllFriendsFlow()
+        .map { list -> list.map { it.toDomain() } }
+        .flowOn(Dispatchers.Default)
+
+    // System Logs Flow
+    val logsFlow: Flow<List<SystemLog>> = logDao.getRecentLogsFlow(60)
+        .map { list -> list.map { it.toDomain() } }
+        .flowOn(Dispatchers.Default)
+
+    // Dashboard Stats Reactive Flow - strictly calculated from actual database records and persistent settings
+    val dashboardStatsFlow: Flow<DashboardStats> = combine(
+        annDao.getTotalCountFlow(),
+        annDao.getPendingCountFlow(),
+        annDao.getPublishedCountFlow(),
+        annDao.getRejectedCountFlow(),
+        friendDao.getActiveFriendsCountFlow(),
+        serverConfigFlow
+    ) { array: Array<Any?> ->
+        val total = array[0] as Int
+        val pending = array[1] as Int
+        val published = array[2] as Int
+        val rejected = array[3] as Int
+        val friendsCount = array[4] as Int
+        val config = array[5] as ServerConfig
+        DashboardStats(
+            totalAnnouncements = total,
+            pendingAnnouncements = pending,
+            publishedAnnouncements = published,
+            rejectedAnnouncements = rejected,
+            totalFriends = friendsCount,
+            botConnected = true,
+            targetChannel = config.targetChannel,
+            serverTime = now()
+        )
+    }.flowOn(Dispatchers.Default)
+
+    suspend fun saveSettings(
+        serverUrl: String,
+        apiKey: String,
+        adminTelegramId: Long,
+        targetChannel: String,
+        isLocalMode: Boolean,
+        notificationsEnabled: Boolean = true,
+        autoSyncInterval: Int = 30
+    ) = withContext(Dispatchers.IO) {
+        settingsDataStore.updateSettings(
+            serverUrl, apiKey, adminTelegramId, targetChannel, isLocalMode,
+            notificationsEnabled, autoSyncInterval
+        )
+    }
+
+    suspend fun clearSettings() = withContext(Dispatchers.IO) {
+        settingsDataStore.clearSettings()
+    }
+
+    suspend fun approveAnnouncement(id: Long, config: ServerConfig): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val timestamp = now()
+            val publisher = if (config.adminTelegramId > 0) "Admin (ID: ${config.adminTelegramId})" else "Admin"
+            val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
+
+            if (config.isLiveConnected && !config.isLocalMode) {
+                try {
+                    val service = NetworkClient.getService(config.serverUrl)
+                    val res = service.approveAnnouncement(
+                        config.apiKey,
+                        adminTgHeader,
+                        id,
+                        ApproveDto(publishedBy = publisher)
+                    )
+                    if (!res.isSuccessful) {
+                        return@withContext Result.failure(Exception("Backend HTTP error: ${res.code()} - ${res.message()}"))
+                    }
+                } catch (e: Exception) {
+                    logDao.insert(LogEntity(
+                        timestamp = timestamp,
+                        level = "WARN",
+                        category = "SYNC",
+                        message = "Could not sync approval to remote server: ${e.message}",
+                        details = "Updated locally"
+                    ))
+                }
+            }
+
+            val rows = annDao.approveAtomic(id, timestamp, publisher, "[]")
+            if (rows > 0) {
+                logDao.insert(LogEntity(
+                    timestamp = timestamp,
+                    level = "SUCCESS",
+                    category = "PUBLISH",
+                    message = "Announcement #$id approved & published to @SolixxTR",
+                    details = "Published by $publisher"
+                ))
+                Result.success(true)
+            } else {
+                Result.failure(Exception("Announcement was already processed or not in PENDING state"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun rejectAnnouncement(id: Long, reason: String, notes: String?, config: ServerConfig): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val timestamp = now()
+            val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
+
+            if (config.isLiveConnected && !config.isLocalMode) {
+                try {
+                    val service = NetworkClient.getService(config.serverUrl)
+                    val res = service.rejectAnnouncement(
+                        config.apiKey,
+                        adminTgHeader,
+                        id,
+                        RejectDto(rejectionReason = reason, adminNotes = notes)
+                    )
+                    if (!res.isSuccessful) {
+                        return@withContext Result.failure(Exception("Backend HTTP error: ${res.code()} - ${res.message()}"))
+                    }
+                } catch (e: Exception) {
+                    logDao.insert(LogEntity(
+                        timestamp = timestamp,
+                        level = "WARN",
+                        category = "SYNC",
+                        message = "Remote reject sync failed: ${e.message}",
+                        details = "Rejection committed locally"
+                    ))
+                }
+            }
+
+            val rows = annDao.rejectAtomic(id, reason, notes, timestamp)
+            if (rows > 0) {
+                logDao.insert(LogEntity(
+                    timestamp = timestamp,
+                    level = "WARN",
+                    category = "MODERATION",
+                    message = "Announcement #$id rejected by Administrator",
+                    details = "Reason: $reason"
+                ))
+                Result.success(true)
+            } else {
+                Result.failure(Exception("Announcement not in PENDING state"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private fun mediaItemsToJson(items: List<MediaItem>): String {
+        val array = JSONArray()
+        for (m in items) {
+            val obj = JSONObject()
+            obj.put("file_id", m.fileId)
+            m.fileUniqueId?.let { obj.put("file_unique_id", it) }
+            obj.put("type", m.type)
+            m.caption?.let { obj.put("caption", it) }
+            m.width?.let { obj.put("width", it) }
+            m.height?.let { obj.put("height", it) }
+            m.duration?.let { obj.put("duration", it) }
+            m.fileSize?.let { obj.put("file_size", it) }
+            m.url?.let { obj.put("url", it) }
+            array.put(obj)
+        }
+        return array.toString()
+    }
+
+    suspend fun editAnnouncement(
+        id: Long,
+        newText: String,
+        notes: String?,
+        mediaItems: List<MediaItem>? = null,
+        config: ServerConfig
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val timestamp = now()
+            val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
+
+            val mediaDtos = mediaItems?.map { m ->
+                MediaItemDto(
+                    fileId = m.fileId,
+                    fileUniqueId = m.fileUniqueId,
+                    type = m.type,
+                    caption = m.caption,
+                    width = m.width,
+                    height = m.height,
+                    duration = m.duration,
+                    fileSize = m.fileSize,
+                    url = m.url
+                )
+            }
+
+            if (config.isLiveConnected && !config.isLocalMode) {
+                try {
+                    val service = NetworkClient.getService(config.serverUrl)
+                    service.editAnnouncement(
+                        config.apiKey,
+                        adminTgHeader,
+                        id,
+                        EditDto(newText = newText, adminNotes = notes, mediaItems = mediaDtos)
+                    )
+                } catch (_: Exception) {}
+            }
+
+            val rows = if (mediaItems != null) {
+                val newType = when {
+                    mediaItems.isEmpty() -> "TEXT"
+                    mediaItems.size == 1 -> mediaItems[0].type.uppercase()
+                    else -> "ALBUM"
+                }
+                val jsonStr = mediaItemsToJson(mediaItems)
+                annDao.editContentWithMedia(id, newText, notes, jsonStr, newType, timestamp)
+            } else {
+                annDao.editContent(id, newText, notes, timestamp)
+            }
+
+            if (rows > 0) {
+                logDao.insert(LogEntity(
+                    timestamp = timestamp,
+                    level = "INFO",
+                    category = "EDIT",
+                    message = "Admin modified content of Announcement #$id",
+                    details = "Pending queue updated"
+                ))
+                Result.success(true)
+            } else {
+                Result.failure(Exception("Announcement not found or not in PENDING state"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun addFriend(telegramId: Long, displayName: String?, username: String?, notes: String?, config: ServerConfig): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val timestamp = now()
+            val cleanDisplay = if (!displayName.isNullOrBlank()) displayName.trim() else "User $telegramId"
+            val cleanUsername = if (!username.isNullOrBlank()) username.trim().replace("@", "") else null
+            val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
+
+            if (config.isLiveConnected && !config.isLocalMode) {
+                try {
+                    val service = NetworkClient.getService(config.serverUrl)
+                    service.addFriend(
+                        config.apiKey,
+                        adminTgHeader,
+                        FriendCreateDto(
+                            telegramId = telegramId,
+                            displayName = cleanDisplay,
+                            username = cleanUsername,
+                            notes = notes
+                        )
+                    )
+                } catch (_: Exception) {}
+            }
+
+            val existing = friendDao.getFriendByTelegramId(telegramId)
+            val entity = FriendEntity(
+                id = existing?.id ?: 0,
+                telegramId = telegramId,
+                username = cleanUsername ?: existing?.username,
+                displayName = cleanDisplay,
+                addedAt = existing?.addedAt ?: timestamp,
+                isActive = true,
+                notes = notes ?: existing?.notes
+            )
+            friendDao.insert(entity)
+
+            logDao.insert(LogEntity(
+                timestamp = timestamp,
+                level = "INFO",
+                category = "FRIENDS",
+                message = "Authorized Telegram user ID: $telegramId",
+                details = "User: ${cleanUsername?.let { "@$it" } ?: "Username unavailable"}"
+            ))
+            Result.success(true)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun removeFriend(telegramId: Long, config: ServerConfig): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
+            if (config.isLiveConnected && !config.isLocalMode) {
+                try {
+                    val service = NetworkClient.getService(config.serverUrl)
+                    service.removeFriend(config.apiKey, adminTgHeader, telegramId)
+                } catch (_: Exception) {}
+            }
+
+            val count = friendDao.deleteByTelegramId(telegramId)
+            if (count > 0) {
+                logDao.insert(LogEntity(
+                    timestamp = now(),
+                    level = "WARN",
+                    category = "FRIENDS",
+                    message = "Revoked authorization for Telegram user ID $telegramId",
+                    details = "Removed by Administrator"
+                ))
+                Result.success(true)
+            } else {
+                Result.failure(Exception("Friend not found with ID $telegramId"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun toggleFriendActive(telegramId: Long, isActive: Boolean, config: ServerConfig): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
+            if (config.isLiveConnected && !config.isLocalMode) {
+                try {
+                    val service = NetworkClient.getService(config.serverUrl)
+                    service.toggleFriend(config.apiKey, adminTgHeader, telegramId, isActive)
+                } catch (_: Exception) {}
+            }
+            friendDao.toggleActive(telegramId, isActive)
+            Result.success(true)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun testServerConnection(url: String, apiKey: String): Result<Pair<Boolean, Long>> = withContext(Dispatchers.IO) {
+        try {
+            val startTime = System.currentTimeMillis()
+            val service = NetworkClient.getService(url)
+            val res = service.getStatus()
+            val latency = System.currentTimeMillis() - startTime
+            if (res.isSuccessful && res.body() != null) {
+                Result.success(Pair(res.body()!!.botConnected, latency))
+            } else {
+                Result.failure(Exception("Server returned status code: ${res.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun clearLogs() = withContext(Dispatchers.IO) {
+        logDao.clearLogs()
+    }
+
+    suspend fun clearAllData(config: ServerConfig) = withContext(Dispatchers.IO) {
+        val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
+        if (config.isLiveConnected && !config.isLocalMode) {
+            try {
+                val service = NetworkClient.getService(config.serverUrl)
+                service.clearRemoteData(config.apiKey, adminTgHeader)
+            } catch (_: Exception) {}
+        }
+        annDao.clearAll()
+        friendDao.clearAll()
+        logDao.clearLogs()
+    }
+
+    suspend fun syncWithServer(config: ServerConfig): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
+            val service = NetworkClient.getService(config.serverUrl)
+
+            // 1. Fetch remote announcements
+            val annRes = service.getAnnouncements(config.apiKey, adminTgHeader, "ALL")
+            if (annRes.isSuccessful && annRes.body() != null) {
+                val remoteAnns = annRes.body()!!
+                val entities = remoteAnns.map { dto ->
+                    AnnouncementEntity(
+                        id = dto.id,
+                        senderTelegramId = dto.senderTelegramId,
+                        senderUsername = dto.senderUsername,
+                        senderDisplayName = dto.senderDisplayName,
+                        contentType = dto.contentType,
+                        textContent = dto.textContent,
+                        mediaGroupId = dto.mediaGroupId,
+                        mediaItemsJson = mediaListToJson(dto.mediaItems),
+                        status = dto.status,
+                        createdAt = dto.createdAt,
+                        updatedAt = dto.updatedAt,
+                        publishedAt = dto.publishedAt,
+                        publishedMessageIdsJson = longListToJson(dto.publishedMessageIds),
+                        rejectionReason = dto.rejectionReason,
+                        adminNotes = dto.adminNotes,
+                        publishedBy = dto.publishedBy
+                    )
+                }
+                annDao.insertAll(entities)
+            }
+
+            // 2. Fetch remote friends
+            val friendRes = service.getFriends(config.apiKey, adminTgHeader)
+            if (friendRes.isSuccessful && friendRes.body() != null) {
+                val remoteFriends = friendRes.body()!!
+                val friendEntities = remoteFriends.map { dto ->
+                    val existing = friendDao.getFriendByTelegramId(dto.telegramId)
+                    FriendEntity(
+                        id = existing?.id ?: (dto.id ?: 0L),
+                        telegramId = dto.telegramId,
+                        username = dto.username ?: existing?.username,
+                        displayName = (dto.displayName ?: existing?.displayName ?: "User ${dto.telegramId}").ifBlank { "User ${dto.telegramId}" },
+                        addedAt = dto.addedAt ?: existing?.addedAt ?: now(),
+                        isActive = dto.isActive,
+                        notes = dto.notes ?: existing?.notes
+                    )
+                }
+                friendDao.insertAll(friendEntities)
+            }
+
+            // 3. Fetch remote logs
+            val logRes = service.getLogs(config.apiKey, adminTgHeader)
+            if (logRes.isSuccessful && logRes.body() != null) {
+                val remoteLogs = logRes.body()!!
+                val logEntities = remoteLogs.map { dto ->
+                    LogEntity(
+                        id = dto.id,
+                        timestamp = dto.timestamp,
+                        level = dto.level,
+                        category = dto.category,
+                        message = dto.message,
+                        details = dto.details
+                    )
+                }
+                logDao.insertAll(logEntities)
+            }
+
+            Result.success(true)
+        } catch (e: Exception) {
+            com.example.phone.data.logger.AppErrorLogger.logError("SYNC", "Sunucu senkronizasyon hatası: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    // Mapping helpers
+    private fun AnnouncementEntity.toDomain(): Announcement {
+        return Announcement(
+            id = id,
+            senderTelegramId = senderTelegramId,
+            senderUsername = if (senderUsername.isNullOrBlank()) null else senderUsername,
+            senderDisplayName = senderDisplayName.ifBlank { "User $senderTelegramId" },
+            contentType = contentType,
+            textContent = textContent,
+            mediaGroupId = mediaGroupId,
+            mediaItems = jsonToMediaList(mediaItemsJson),
+            status = status,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            publishedAt = publishedAt,
+            publishedMessageIds = jsonToLongList(publishedMessageIdsJson),
+            rejectionReason = rejectionReason,
+            adminNotes = adminNotes,
+            publishedBy = publishedBy
+        )
+    }
+
+    private fun FriendEntity.toDomain(): Friend {
+        return Friend(
+            id = id,
+            telegramId = telegramId,
+            username = if (username.isNullOrBlank()) null else username,
+            displayName = displayName.ifBlank { "User $telegramId" },
+            addedAt = addedAt,
+            isActive = isActive,
+            notes = notes,
+            submissionCount = 0
+        )
+    }
+
+    private fun LogEntity.toDomain(): SystemLog {
+        return SystemLog(
+            id = id,
+            timestamp = timestamp,
+            level = level,
+            category = category,
+            message = message,
+            details = details
+        )
+    }
+
+    private fun jsonToMediaList(jsonStr: String?): List<MediaItem> {
+        if (jsonStr.isNullOrBlank() || jsonStr == "[]") return emptyList()
+        val list = mutableListOf<MediaItem>()
+        try {
+            val array = JSONArray(jsonStr)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    MediaItem(
+                        fileId = obj.optString("fileId", obj.optString("file_id", "f_$i")),
+                        fileUniqueId = obj.optString("fileUniqueId", null),
+                        type = obj.optString("type", "photo"),
+                        caption = obj.optString("caption", null),
+                        width = if (obj.has("width")) obj.optInt("width") else null,
+                        height = if (obj.has("height")) obj.optInt("height") else null,
+                        duration = if (obj.has("duration")) obj.optInt("duration") else null
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            com.example.phone.data.logger.AppErrorLogger.logJsonParseError("mediaItemsJson", jsonStr, e)
+        }
+        return list
+    }
+
+    private fun jsonToLongList(jsonStr: String?): List<Long> {
+        if (jsonStr.isNullOrBlank() || jsonStr == "[]") return emptyList()
+        val list = mutableListOf<Long>()
+        try {
+            val array = JSONArray(jsonStr)
+            for (i in 0 until array.length()) {
+                list.add(array.getLong(i))
+            }
+        } catch (e: Exception) {
+            com.example.phone.data.logger.AppErrorLogger.logJsonParseError("publishedMessageIdsJson", jsonStr, e)
+        }
+        return list
+    }
+
+    private fun mediaListToJson(items: List<MediaItemDto>): String {
+        val arr = JSONArray()
+        for (item in items) {
+            val obj = JSONObject()
+            obj.put("fileId", item.fileId)
+            obj.put("fileUniqueId", item.fileUniqueId)
+            obj.put("type", item.type)
+            obj.put("caption", item.caption)
+            item.width?.let { obj.put("width", it) }
+            item.height?.let { obj.put("height", it) }
+            item.duration?.let { obj.put("duration", it) }
+            item.fileSize?.let { obj.put("fileSize", it) }
+            arr.put(obj)
+        }
+        return arr.toString()
+    }
+
+    private fun longListToJson(ids: List<Long>): String {
+        val arr = JSONArray()
+        for (id in ids) {
+            arr.put(id)
+        }
+        return arr.toString()
+    }
+}

@@ -25,3 +25,4 @@ dependencyResolutionManagement {
 rootProject.name = "SolixxBot"
 
 include(":app")
+include(":phone")

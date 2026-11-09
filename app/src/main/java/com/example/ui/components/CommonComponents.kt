@@ -33,6 +33,9 @@ import androidx.compose.material.icons.filled.TextSnippet
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material3.CircularProgressIndicator
+import coil.compose.SubcomposeAsyncImage
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -385,10 +388,20 @@ fun ContentTypeBadge(contentType: String, mediaCount: Int = 1) {
     }
 }
 
+fun resolveMediaUrl(item: MediaItem, serverUrl: String = "http://10.0.2.2:8000"): String {
+    val raw = item.url ?: "/api/media/${item.fileId}"
+    return if (raw.startsWith("http://") || raw.startsWith("https://")) {
+        raw
+    } else {
+        "${serverUrl.trimEnd('/')}/${raw.trimStart('/')}"
+    }
+}
+
 @Composable
 fun MediaPreviewBox(
     contentType: String,
     mediaItems: List<MediaItem>,
+    serverUrl: String = "http://10.0.2.2:8000",
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -407,18 +420,45 @@ fun MediaPreviewBox(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(60.dp)
+                            .size(68.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(Brush.linearGradient(listOf(Color(0xFF3B1D6B), Color(0xFF1E1035))))
                             .border(1.dp, AccentPurple.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Image,
-                            contentDescription = "Photo",
-                            tint = AccentPurpleLight,
-                            modifier = Modifier.size(28.dp)
-                        )
+                        val photoUrl = mediaItems.firstOrNull()?.let { resolveMediaUrl(it, serverUrl) }
+                        if (!photoUrl.isNullOrBlank()) {
+                            SubcomposeAsyncImage(
+                                model = photoUrl,
+                                contentDescription = "Telegram Photo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.matchParentSize(),
+                                loading = {
+                                    Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(
+                                            color = AccentPurpleLight,
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+                                },
+                                error = {
+                                    Icon(
+                                        imageVector = Icons.Default.Image,
+                                        contentDescription = "Photo fallback",
+                                        tint = AccentPurpleLight,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = "Photo",
+                                tint = AccentPurpleLight,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
@@ -429,7 +469,7 @@ fun MediaPreviewBox(
                             fontSize = 13.sp
                         )
                         Text(
-                            text = "Dosya ID: ${mediaItems.firstOrNull()?.fileId?.take(18) ?: "tg_photo"}... (Orijinal kalite korunuyor)",
+                            text = "Dosya ID: ${mediaItems.firstOrNull()?.fileId?.take(18) ?: "tg_photo"}... (Önizleme Aktif)",
                             color = TextMuted,
                             fontSize = 11.sp
                         )
@@ -472,21 +512,40 @@ fun MediaPreviewBox(
                     ) {
                         val displayCount = minOf(4, mediaItems.size)
                         for (i in 0 until displayCount) {
+                            val item = mediaItems.getOrNull(i)
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(54.dp)
+                                    .height(64.dp)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(Brush.linearGradient(listOf(Color(0xFF281C45), Color(0xFF18122B))))
                                     .border(1.dp, BorderSubtle, RoundedCornerShape(8.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (i == 3 && mediaItems.size > 4) {
-                                    Text(
-                                        text = "+${mediaItems.size - 3}",
-                                        color = AccentPurpleLight,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
+                                val itemUrl = item?.let { resolveMediaUrl(it, serverUrl) }
+                                if (!itemUrl.isNullOrBlank()) {
+                                    SubcomposeAsyncImage(
+                                        model = itemUrl,
+                                        contentDescription = "Album Item $i",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.matchParentSize(),
+                                        loading = {
+                                            Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                                                CircularProgressIndicator(
+                                                    color = AccentPurpleLight,
+                                                    modifier = Modifier.size(16.dp),
+                                                    strokeWidth = 2.dp
+                                                )
+                                            }
+                                        },
+                                        error = {
+                                            Icon(
+                                                imageVector = Icons.Default.Image,
+                                                contentDescription = null,
+                                                tint = AccentPurpleLight.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
                                     )
                                 } else {
                                     Icon(
@@ -495,6 +554,21 @@ fun MediaPreviewBox(
                                         tint = AccentPurpleLight.copy(alpha = 0.7f),
                                         modifier = Modifier.size(20.dp)
                                     )
+                                }
+                                if (i == 3 && mediaItems.size > 4) {
+                                    Box(
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                            .background(Color.Black.copy(alpha = 0.6f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "+${mediaItems.size - 3}",
+                                            color = AccentPurpleLight,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
                                 }
                             }
                         }

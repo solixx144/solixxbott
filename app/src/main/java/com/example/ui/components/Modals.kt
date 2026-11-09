@@ -23,14 +23,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material3.CircularProgressIndicator
+import coil.compose.SubcomposeAsyncImage
+import com.example.data.model.MediaItem
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -224,11 +234,22 @@ fun RejectDialog(
 @Composable
 fun EditDialog(
     announcement: Announcement,
+    serverUrl: String = "http://10.0.2.2:8000",
     onDismiss: () -> Unit,
-    onConfirm: (newText: String, notes: String?) -> Unit
+    onConfirm: (newText: String, notes: String?, mediaItems: List<MediaItem>?) -> Unit
 ) {
     var editedText by remember { mutableStateOf(announcement.textContent ?: "") }
     var notesText by remember { mutableStateOf(announcement.adminNotes ?: "") }
+    var mediaList by remember { mutableStateOf(announcement.mediaItems) }
+
+    // Dialog state for adding a new photo
+    var showAddPhotoModal by remember { mutableStateOf(false) }
+    var newPhotoUrl by remember { mutableStateOf("") }
+    var newPhotoCaption by remember { mutableStateOf("") }
+
+    // Dialog state for replacing a photo
+    var replaceIndex by remember { mutableIntStateOf(-1) }
+    var replaceUrl by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -254,8 +275,211 @@ fun EditDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
+                // Photo Management Section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Fotoğraflar & Medya (${mediaList.size})",
+                        color = TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    OutlinedButton(
+                        onClick = { showAddPhotoModal = true },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentPurpleLight),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Fotoğraf Ekle", fontSize = 11.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (mediaList.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SurfaceVariantDark)
+                            .border(1.dp, BorderSubtle, RoundedCornerShape(8.dp))
+                            .padding(12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Medya yok. (Yukarıdaki butondan fotoğraf ekleyebilirsiniz)",
+                            color = TextMuted,
+                            fontSize = 12.sp
+                        )
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        mediaList.forEachIndexed { index, item ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .border(1.dp, BorderSubtle, RoundedCornerShape(8.dp)),
+                                colors = CardDefaults.cardColors(containerColor = SurfaceVariantDark)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Live Thumbnail Preview
+                                    Box(
+                                        modifier = Modifier
+                                            .size(54.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFF281C45))
+                                            .border(1.dp, BorderSubtle, RoundedCornerShape(6.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        val resolved = resolveMediaUrl(item, serverUrl)
+                                        SubcomposeAsyncImage(
+                                            model = resolved,
+                                            contentDescription = "Photo Preview",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.matchParentSize(),
+                                            loading = {
+                                                Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                                                    CircularProgressIndicator(
+                                                        color = AccentPurpleLight,
+                                                        modifier = Modifier.size(16.dp),
+                                                        strokeWidth = 2.dp
+                                                    )
+                                                }
+                                            },
+                                            error = {
+                                                Icon(
+                                                    imageVector = Icons.Default.Image,
+                                                    contentDescription = null,
+                                                    tint = AccentPurpleLight,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(10.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Görsel #${index + 1} (${item.type.uppercase()})",
+                                            color = TextPrimary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = item.fileId.take(18) + "...",
+                                            color = TextMuted,
+                                            fontSize = 10.sp
+                                        )
+                                        if (!item.caption.isNullOrBlank()) {
+                                            Text(
+                                                text = item.caption,
+                                                color = TextSecondary,
+                                                fontSize = 11.sp,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+
+                                    // Action buttons: Reorder, Replace, Delete
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // Move up
+                                        IconButton(
+                                            onClick = {
+                                                if (index > 0) {
+                                                    val newList = mediaList.toMutableList()
+                                                    val temp = newList[index]
+                                                    newList[index] = newList[index - 1]
+                                                    newList[index - 1] = temp
+                                                    mediaList = newList
+                                                }
+                                            },
+                                            enabled = index > 0,
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.KeyboardArrowUp,
+                                                contentDescription = "Yukarı Taşı",
+                                                tint = if (index > 0) AccentPurpleLight else TextMuted.copy(alpha = 0.3f),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        // Move down
+                                        IconButton(
+                                            onClick = {
+                                                if (index < mediaList.size - 1) {
+                                                    val newList = mediaList.toMutableList()
+                                                    val temp = newList[index]
+                                                    newList[index] = newList[index + 1]
+                                                    newList[index + 1] = temp
+                                                    mediaList = newList
+                                                }
+                                            },
+                                            enabled = index < mediaList.size - 1,
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.KeyboardArrowDown,
+                                                contentDescription = "Aşağı Taşı",
+                                                tint = if (index < mediaList.size - 1) AccentPurpleLight else TextMuted.copy(alpha = 0.3f),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+
+                                        // Replace
+                                        IconButton(
+                                            onClick = {
+                                                replaceIndex = index
+                                                replaceUrl = item.fileId
+                                            },
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Fotoğrafı Değiştir",
+                                                tint = TelegramBlue,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+
+                                        // Delete
+                                        IconButton(
+                                            onClick = {
+                                                val newList = mediaList.toMutableList()
+                                                newList.removeAt(index)
+                                                mediaList = newList
+                                            },
+                                            modifier = Modifier.size(30.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Fotoğrafı Sil",
+                                                tint = AccentRose,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
                 Text(
-                    text = if (announcement.contentType == "TEXT") "Duyuru Metni:" else "Medya Açıklaması (Caption):",
+                    text = if (mediaList.isEmpty()) "Duyuru Metni:" else "Duyuru / Medya Açıklaması (Caption):",
                     color = TextPrimary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
@@ -264,9 +488,10 @@ fun EditDialog(
                 OutlinedTextField(
                     value = editedText,
                     onValueChange = { editedText = it },
+                    placeholder = { Text("Duyuru metni veya açıklama...", color = TextMuted) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(150.dp)
+                        .height(120.dp)
                         .testTag("edit_text_input"),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = AccentPurple,
@@ -300,7 +525,7 @@ fun EditDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(editedText, notesText.ifEmpty { null }) },
+                onClick = { onConfirm(editedText, notesText.ifEmpty { null }, mediaList) },
                 colors = ButtonDefaults.buttonColors(containerColor = AccentPurple),
                 modifier = Modifier.testTag("confirm_edit_button")
             ) {
@@ -318,11 +543,136 @@ fun EditDialog(
             }
         }
     )
+
+    // Modal to add a new photo
+    if (showAddPhotoModal) {
+        AlertDialog(
+            onDismissRequest = { showAddPhotoModal = false },
+            containerColor = SurfaceDarkCharcoal,
+            title = {
+                Text("Yeni Fotoğraf / Medya Ekle", color = AccentPurpleLight, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Column {
+                    Text("Görsel URL veya Telegram File ID:", color = TextSecondary, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = newPhotoUrl,
+                        onValueChange = { newPhotoUrl = it },
+                        placeholder = { Text("https://example.com/resim.jpg veya file_id", color = TextMuted, fontSize = 11.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AccentPurple,
+                            unfocusedBorderColor = BorderSubtle,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("İsteğe Bağlı Açıklama (Caption):", color = TextSecondary, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = newPhotoCaption,
+                        onValueChange = { newPhotoCaption = it },
+                        placeholder = { Text("Örn: Ürün detayı", color = TextMuted, fontSize = 11.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AccentPurple,
+                            unfocusedBorderColor = BorderSubtle,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newPhotoUrl.isNotBlank()) {
+                            val newItem = MediaItem(
+                                fileId = newPhotoUrl.trim(),
+                                type = "photo",
+                                caption = newPhotoCaption.trim().ifEmpty { null },
+                                url = if (newPhotoUrl.startsWith("http")) newPhotoUrl.trim() else "/api/media/${newPhotoUrl.trim()}"
+                            )
+                            mediaList = mediaList + newItem
+                            newPhotoUrl = ""
+                            newPhotoCaption = ""
+                            showAddPhotoModal = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentPurple)
+                ) {
+                    Text("Ekle")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showAddPhotoModal = false }) {
+                    Text("İptal")
+                }
+            }
+        )
+    }
+
+    // Modal to replace a photo
+    if (replaceIndex >= 0) {
+        AlertDialog(
+            onDismissRequest = { replaceIndex = -1 },
+            containerColor = SurfaceDarkCharcoal,
+            title = {
+                Text("Fotoğrafı Değiştir (#${replaceIndex + 1})", color = TelegramBlue, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            },
+            text = {
+                Column {
+                    Text("Yeni Görsel URL veya File ID:", color = TextSecondary, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = replaceUrl,
+                        onValueChange = { replaceUrl = it },
+                        placeholder = { Text("https://... veya file_id", color = TextMuted) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = TelegramBlue,
+                            unfocusedBorderColor = BorderSubtle,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (replaceUrl.isNotBlank() && replaceIndex in mediaList.indices) {
+                            val current = mediaList[replaceIndex]
+                            val updatedItem = current.copy(
+                                fileId = replaceUrl.trim(),
+                                url = if (replaceUrl.startsWith("http")) replaceUrl.trim() else "/api/media/${replaceUrl.trim()}"
+                            )
+                            val newList = mediaList.toMutableList()
+                            newList[replaceIndex] = updatedItem
+                            mediaList = newList
+                            replaceIndex = -1
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue)
+                ) {
+                    Text("Değiştir")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { replaceIndex = -1 }) {
+                    Text("İptal")
+                }
+            }
+        )
+    }
 }
 
 @Composable
 fun TelegramPreviewDialog(
     announcement: Announcement,
+    serverUrl: String = "http://10.0.2.2:8000",
     onDismiss: () -> Unit,
     onApproveDirectly: () -> Unit
 ) {
@@ -427,7 +777,8 @@ fun TelegramPreviewDialog(
                         if (announcement.contentType != "TEXT") {
                             MediaPreviewBox(
                                 contentType = announcement.contentType,
-                                mediaItems = announcement.mediaItems
+                                mediaItems = announcement.mediaItems,
+                                serverUrl = serverUrl
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                         }

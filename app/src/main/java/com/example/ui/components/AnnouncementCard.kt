@@ -64,6 +64,7 @@ fun AnnouncementCard(
     onReject: (Announcement) -> Unit,
     onEdit: (Announcement) -> Unit,
     onPreview: (Announcement) -> Unit,
+    serverUrl: String = "http://10.0.2.2:8000",
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -170,7 +171,8 @@ fun AnnouncementCard(
             if (announcement.contentType != "TEXT") {
                 MediaPreviewBox(
                     contentType = announcement.contentType,
-                    mediaItems = announcement.mediaItems
+                    mediaItems = announcement.mediaItems,
+                    serverUrl = serverUrl
                 )
                 Spacer(modifier = Modifier.height(10.dp))
             }

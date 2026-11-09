@@ -1,11 +1,17 @@
 import asyncio
+import os
+import re
+from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, Depends, HTTPException, Header, Query, status
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import httpx
+import aiofiles
 
 import config
 import database
@@ -19,6 +25,9 @@ from models import (
     SystemStatusResponse,
 )
 import bot
+
+MEDIA_CACHE_DIR = Path(__file__).resolve().parent / "media"
+MEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Security Dependency: Validates administrator credentials server-side
 async def verify_admin(
@@ -183,12 +192,77 @@ async def edit_announcement(announcement_id: int, req: EditRequest):
     if ann["status"] != "PENDING":
         raise HTTPException(status_code=400, detail="Only pending announcements can be edited before approval")
 
-    updated = database.edit_announcement_content(announcement_id, req.new_text, req.admin_notes)
+    updated = database.edit_announcement_content(
+        announcement_id=announcement_id,
+        new_text=req.new_text,
+        admin_notes=req.admin_notes,
+        media_items=req.media_items
+    )
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update announcement")
 
     updated_ann = database.get_announcement_by_id(announcement_id)
     return {"success": True, "message": "Announcement updated successfully", "announcement": updated_ann}
+
+# Media Proxy Endpoint: Serves Telegram photos and album media with disk caching
+@app.get("/api/media/{file_id}")
+async def get_media_file(file_id: str):
+    clean_id = re.sub(r'[^a-zA-Z0-9_\-]', '', file_id)
+    if not clean_id:
+        raise HTTPException(status_code=400, detail="Invalid media identifier")
+
+    cached_path = MEDIA_CACHE_DIR / f"{clean_id}.jpg"
+    if cached_path.exists() and cached_path.stat().st_size > 0:
+        return FileResponse(str(cached_path), media_type="image/jpeg")
+
+    # If file_id is a full HTTP URL
+    if file_id.startswith("http://") or file_id.startswith("https://"):
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                res = await client.get(file_id)
+                if res.status_code == 200:
+                    async with aiofiles.open(cached_path, "wb") as f:
+                        await f.write(res.content)
+                    return FileResponse(str(cached_path), media_type="image/jpeg")
+        except Exception:
+            pass
+
+    # 1. Try resolving via python-telegram-bot instance if running
+    if bot.bot_app and bot.bot_app.bot:
+        try:
+            tg_file = await bot.bot_app.bot.get_file(file_id)
+            if tg_file:
+                await tg_file.download_to_drive(custom_path=str(cached_path))
+                if cached_path.exists() and cached_path.stat().st_size > 0:
+                    return FileResponse(str(cached_path), media_type="image/jpeg")
+        except Exception as e:
+            bot.logger.warning(f"Could not download file {file_id} via telegram bot instance: {e}")
+
+    # 2. Direct Telegram Bot API HTTP download fallback
+    token = config.TELEGRAM_BOT_TOKEN
+    if token:
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                info_res = await client.get(
+                    f"https://api.telegram.org/bot{token}/getFile",
+                    params={"file_id": file_id}
+                )
+                if info_res.status_code == 200:
+                    data = info_res.json()
+                    if data.get("ok"):
+                        file_path = data["result"].get("file_path")
+                        if file_path:
+                            dl_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+                            dl_res = await client.get(dl_url)
+                            if dl_res.status_code == 200:
+                                async with aiofiles.open(cached_path, "wb") as f:
+                                    await f.write(dl_res.content)
+                                return FileResponse(str(cached_path), media_type="image/jpeg")
+        except Exception as e:
+            bot.logger.warning(f"Direct Telegram HTTP download failed for {file_id}: {e}")
+
+    # Return placeholder 404
+    raise HTTPException(status_code=404, detail="Media file could not be retrieved from Telegram")
 
 # Friend Management
 @app.get("/api/friends", response_model=List[FriendResponse], dependencies=[Depends(verify_admin)])

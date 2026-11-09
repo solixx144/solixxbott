@@ -203,14 +203,16 @@ fun MainScreen(
     state.editingAnnouncement?.let { ann ->
         EditDialog(
             announcement = ann,
+            serverUrl = state.serverConfig.serverUrl,
             onDismiss = { viewModel.closeEditDialog() },
-            onConfirm = { newText, notes -> viewModel.confirmEdit(newText, notes) }
+            onConfirm = { newText, notes, mediaItems -> viewModel.confirmEdit(newText, notes, mediaItems) }
         )
     }
 
     state.previewingAnnouncement?.let { ann ->
         TelegramPreviewDialog(
             announcement = ann,
+            serverUrl = state.serverConfig.serverUrl,
             onDismiss = { viewModel.closePreviewDialog() },
             onApproveDirectly = {
                 viewModel.closePreviewDialog()

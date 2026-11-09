@@ -207,6 +207,16 @@ def create_announcement(
     add_log("INFO", "SUBMISSION", f"New submission #{announcement_id} from Telegram ID {sender_telegram_id} ({content_type})", None)
     return announcement_id
 
+def _format_media_items(raw_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    formatted = []
+    for item in raw_items:
+        m = dict(item)
+        file_id = m.get("file_id")
+        if file_id and not m.get("url"):
+            m["url"] = f"/api/media/{file_id}"
+        formatted.append(m)
+    return formatted
+
 def get_announcements(
     status: Optional[str] = None,
     search: Optional[str] = None,
@@ -234,7 +244,8 @@ def get_announcements(
     rows = []
     for r in cursor.fetchall():
         d = dict(r)
-        d["media_items"] = json.loads(d["media_items_json"] or "[]")
+        raw_media = json.loads(d["media_items_json"] or "[]")
+        d["media_items"] = _format_media_items(raw_media)
         if d.get("published_message_ids_json"):
             d["published_message_ids"] = json.loads(d["published_message_ids_json"])
         else:
@@ -252,7 +263,8 @@ def get_announcement_by_id(announcement_id: int) -> Optional[Dict[str, Any]]:
     if not row:
         return None
     d = dict(row)
-    d["media_items"] = json.loads(d["media_items_json"] or "[]")
+    raw_media = json.loads(d["media_items_json"] or "[]")
+    d["media_items"] = _format_media_items(raw_media)
     if d.get("published_message_ids_json"):
         d["published_message_ids"] = json.loads(d["published_message_ids_json"])
     else:
@@ -301,22 +313,46 @@ def reject_announcement_atomic(announcement_id: int, rejection_reason: str, admi
         add_log("WARN", "MODERATION", f"Rejected announcement #{announcement_id}", f"Reason: {rejection_reason}")
     return updated
 
-def edit_announcement_content(announcement_id: int, new_text: str, admin_notes: Optional[str] = None) -> bool:
+def edit_announcement_content(
+    announcement_id: int,
+    new_text: str,
+    admin_notes: Optional[str] = None,
+    media_items: Optional[List[Dict[str, Any]]] = None
+) -> bool:
     conn = get_connection()
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     with conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE announcements
-            SET text_content = ?,
-                admin_notes = ?,
-                updated_at = ?
-            WHERE id = ? AND status = 'PENDING'
-        """, (new_text, admin_notes, now, announcement_id))
+        if media_items is not None:
+            # Determine new content type
+            if len(media_items) == 0:
+                new_type = "TEXT"
+            elif len(media_items) == 1:
+                new_type = (media_items[0].get("type") or "photo").upper()
+            else:
+                new_type = "ALBUM"
+            media_json = json.dumps(media_items)
+            cursor.execute("""
+                UPDATE announcements
+                SET text_content = ?,
+                    admin_notes = ?,
+                    media_items_json = ?,
+                    content_type = ?,
+                    updated_at = ?
+                WHERE id = ? AND status = 'PENDING'
+            """, (new_text, admin_notes, media_json, new_type, now, announcement_id))
+        else:
+            cursor.execute("""
+                UPDATE announcements
+                SET text_content = ?,
+                    admin_notes = ?,
+                    updated_at = ?
+                WHERE id = ? AND status = 'PENDING'
+            """, (new_text, admin_notes, now, announcement_id))
         updated = cursor.rowcount > 0
     conn.close()
     if updated:
-        add_log("INFO", "EDIT", f"Administrator edited announcement #{announcement_id} content", None)
+        add_log("INFO", "EDIT", f"Administrator edited announcement #{announcement_id} content (Media updated: {media_items is not None})", None)
     return updated
 
 # Dashboard Stats - strictly calculated from real records

@@ -70,7 +70,8 @@ data class RejectDto(
 @JsonClass(generateAdapter = true)
 data class EditDto(
     @Json(name = "new_text") val newText: String,
-    @Json(name = "admin_notes") val adminNotes: String? = null
+    @Json(name = "admin_notes") val adminNotes: String? = null,
+    @Json(name = "media_items") val mediaItems: List<MediaItemDto>? = null
 )
 
 @JsonClass(generateAdapter = true)

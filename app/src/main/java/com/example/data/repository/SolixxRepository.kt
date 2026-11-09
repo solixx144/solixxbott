@@ -198,10 +198,48 @@ class SolixxRepository(context: Context) {
         }
     }
 
-    suspend fun editAnnouncement(id: Long, newText: String, notes: String?, config: ServerConfig): Result<Boolean> = withContext(Dispatchers.IO) {
+    private fun mediaItemsToJson(items: List<MediaItem>): String {
+        val array = JSONArray()
+        for (m in items) {
+            val obj = JSONObject()
+            obj.put("file_id", m.fileId)
+            m.fileUniqueId?.let { obj.put("file_unique_id", it) }
+            obj.put("type", m.type)
+            m.caption?.let { obj.put("caption", it) }
+            m.width?.let { obj.put("width", it) }
+            m.height?.let { obj.put("height", it) }
+            m.duration?.let { obj.put("duration", it) }
+            m.fileSize?.let { obj.put("file_size", it) }
+            m.url?.let { obj.put("url", it) }
+            array.put(obj)
+        }
+        return array.toString()
+    }
+
+    suspend fun editAnnouncement(
+        id: Long,
+        newText: String,
+        notes: String?,
+        mediaItems: List<MediaItem>? = null,
+        config: ServerConfig
+    ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val timestamp = now()
             val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
+
+            val mediaDtos = mediaItems?.map { m ->
+                MediaItemDto(
+                    fileId = m.fileId,
+                    fileUniqueId = m.fileUniqueId,
+                    type = m.type,
+                    caption = m.caption,
+                    width = m.width,
+                    height = m.height,
+                    duration = m.duration,
+                    fileSize = m.fileSize,
+                    url = m.url
+                )
+            }
 
             if (config.isLiveConnected && !config.isLocalMode) {
                 try {
@@ -210,12 +248,23 @@ class SolixxRepository(context: Context) {
                         config.apiKey,
                         adminTgHeader,
                         id,
-                        EditDto(newText = newText, adminNotes = notes)
+                        EditDto(newText = newText, adminNotes = notes, mediaItems = mediaDtos)
                     )
                 } catch (_: Exception) {}
             }
 
-            val rows = annDao.editContent(id, newText, notes, timestamp)
+            val rows = if (mediaItems != null) {
+                val newType = when {
+                    mediaItems.isEmpty() -> "TEXT"
+                    mediaItems.size == 1 -> mediaItems[0].type.uppercase()
+                    else -> "ALBUM"
+                }
+                val jsonStr = mediaItemsToJson(mediaItems)
+                annDao.editContentWithMedia(id, newText, notes, jsonStr, newType, timestamp)
+            } else {
+                annDao.editContent(id, newText, notes, timestamp)
+            }
+
             if (rows > 0) {
                 logDao.insert(LogEntity(
                     timestamp = timestamp,

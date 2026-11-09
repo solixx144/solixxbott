@@ -56,6 +56,7 @@ class RejectRequest(BaseModel):
 class EditRequest(BaseModel):
     new_text: str = Field(..., description="Edited announcement text or media caption")
     admin_notes: Optional[str] = None
+    media_items: Optional[List[Dict[str, Any]]] = None
 
 class SystemStatusResponse(BaseModel):
     online: bool

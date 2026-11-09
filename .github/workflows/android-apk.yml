@@ -80,47 +80,69 @@ jobs:
       - name: Run Unit Tests
         run: ./gradlew test --no-daemon
 
-      - name: Assemble Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Assemble Debug APKs
+        run: ./gradlew :app:assembleDebug :phone:assembleDebug --no-daemon --stacktrace
 
-      - name: Verify APK Generation
+      - name: Verify & Prepare APK Outputs
         run: |
-          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-          if [ -f "$APK_PATH" ]; then
-            echo "SUCCESS: APK file verified at $APK_PATH"
-            ls -lh "$APK_PATH"
-          else
-            echo "FATAL: APK file does not exist at expected path $APK_PATH"
+          TABLET_RAW="app/build/outputs/apk/debug/app-debug.apk"
+          PHONE_RAW="phone/build/outputs/apk/debug/phone-debug.apk"
+
+          if [ ! -f "$TABLET_RAW" ]; then
+            echo "FATAL: Tablet APK file does not exist at $TABLET_RAW"
             exit 1
           fi
 
-      - name: Upload APK as Artifact
+          if [ ! -f "$PHONE_RAW" ]; then
+            echo "FATAL: Phone APK file does not exist at $PHONE_RAW"
+            exit 1
+          fi
+
+          # Copy to cleanly named standalone APKs
+          cp "$TABLET_RAW" SolixxBot-Tablet.apk
+          cp "$PHONE_RAW" SolixxBot-Phone.apk
+
+          echo "SUCCESS: Both APKs successfully created and verified:"
+          ls -lh SolixxBot-Tablet.apk SolixxBot-Phone.apk
+
+      - name: Upload Tablet APK as Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: solixxbot-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: SolixxBot-Tablet
+          path: SolixxBot-Tablet.apk
           if-no-files-found: error
           retention-days: 14
 
-      - name: Publish APK to GitHub Releases
+      - name: Upload Phone APK as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SolixxBot-Phone
+          path: SolixxBot-Phone.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish APKs to GitHub Releases
         if: (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v1.0.{0}', github.run_number) }}
-          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('SolixxBot v1.0.{0} APK', github.run_number) }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('SolixxBot v1.0.{0} APK (Tablet & Telefon)', github.run_number) }}
           body: |
-            ## 🚀 SolixxBot Android APK İndir
+            ## 🚀 SolixxBot Android APK İndir (Tablet & Telefon)
 
-            Telegram duyuru yönetim, moderasyon ve onay sistemi APK derlemesi.
+            Telegram duyuru yönetim, moderasyon ve onay sistemi APK derlemeleri.
 
             - **Derleme Numarası:** #${{ github.run_number }}
             - **Commit:** `${{ github.sha }}`
             - **Hedef Kanal:** `@SolixxTR`
             - **Platform:** Android 7.0+ (API 24+)
             
-            ### Doğrudan İndirme:
-            Aşağıdaki **Assets** bölümünden `app-debug.apk` dosyasını indirip cihazınıza kurabilirsiniz.
-          files: app/build/outputs/apk/debug/app-debug.apk
+            ### Doğrudan İndirme (Assets):
+            1. **`SolixxBot-Tablet.apk`** — Tablet ve geniş ekranlara özel gelişmiş navigasyon ve bölünmüş panel arayüzü.
+            2. **`SolixxBot-Phone.apk`** — Mobil akıllı telefonlara özel tek elle hızlı onay, fotoğraf düzenleme ve dokunmatik moderasyon arayüzü.
+          files: |
+            SolixxBot-Tablet.apk
+            SolixxBot-Phone.apk
           draft: false
           prerelease: false
         env:

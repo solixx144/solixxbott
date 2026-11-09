@@ -93,7 +93,8 @@ async def handle_incoming_message(update: Update, context: ContextTypes.DEFAULT_
             "type": "photo",
             "caption": msg.caption or "",
             "width": best_photo.width,
-            "height": best_photo.height
+            "height": best_photo.height,
+            "url": f"/api/media/{best_photo.file_id}"
         })
     elif msg.video:
         content_type = "VIDEO"
@@ -104,7 +105,8 @@ async def handle_incoming_message(update: Update, context: ContextTypes.DEFAULT_
             "caption": msg.caption or "",
             "width": msg.video.width,
             "height": msg.video.height,
-            "duration": msg.video.duration
+            "duration": msg.video.duration,
+            "url": f"/api/media/{msg.video.file_id}"
         })
     elif msg.audio:
         content_type = "AUDIO"
@@ -168,7 +170,8 @@ async def process_media_group_item(update: Update, context: ContextTypes.DEFAULT
             "type": "photo",
             "caption": msg.caption or "",
             "width": best_photo.width,
-            "height": best_photo.height
+            "height": best_photo.height,
+            "url": f"/api/media/{best_photo.file_id}"
         }
     elif msg.video:
         item = {
@@ -178,7 +181,8 @@ async def process_media_group_item(update: Update, context: ContextTypes.DEFAULT
             "caption": msg.caption or "",
             "width": msg.video.width,
             "height": msg.video.height,
-            "duration": msg.video.duration
+            "duration": msg.video.duration,
+            "url": f"/api/media/{msg.video.file_id}"
         }
 
     if not item:

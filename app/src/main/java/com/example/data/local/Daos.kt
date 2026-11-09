@@ -69,6 +69,17 @@ interface AnnouncementDao {
     """)
     suspend fun editContent(id: Long, newText: String, notes: String?, now: String): Int
 
+    @Query("""
+        UPDATE announcements 
+        SET textContent = :newText, 
+            adminNotes = :notes, 
+            mediaItemsJson = :mediaJson,
+            contentType = :contentType,
+            updatedAt = :now 
+        WHERE id = :id AND status = 'PENDING'
+    """)
+    suspend fun editContentWithMedia(id: Long, newText: String, notes: String?, mediaJson: String, contentType: String, now: String): Int
+
     @Query("SELECT * FROM announcements WHERE senderTelegramId = :telegramId ORDER BY id DESC")
     suspend fun getBySender(telegramId: Long): List<AnnouncementEntity>
 
