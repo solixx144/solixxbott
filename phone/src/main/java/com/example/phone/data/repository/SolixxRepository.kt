@@ -111,26 +111,17 @@ class SolixxRepository(context: Context) {
             val publisher = if (config.adminTelegramId > 0) "Admin (ID: ${config.adminTelegramId})" else "Admin"
             val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
 
-            if (config.isLiveConnected && !config.isLocalMode) {
-                try {
-                    val service = NetworkClient.getService(config.serverUrl)
-                    val res = service.approveAnnouncement(
-                        config.apiKey,
-                        adminTgHeader,
-                        id,
-                        ApproveDto(publishedBy = publisher)
-                    )
-                    if (!res.isSuccessful) {
-                        return@withContext Result.failure(Exception("Backend HTTP error: ${res.code()} - ${res.message()}"))
-                    }
-                } catch (e: Exception) {
-                    logDao.insert(LogEntity(
-                        timestamp = timestamp,
-                        level = "WARN",
-                        category = "SYNC",
-                        message = "Could not sync approval to remote server: ${e.message}",
-                        details = "Updated locally"
-                    ))
+            if (!config.isLocalMode && config.serverUrl.isNotBlank()) {
+                val service = NetworkClient.getService(config.serverUrl)
+                val res = service.approveAnnouncement(
+                    apiKey = config.apiKey,
+                    adminTgId = adminTgHeader,
+                    id = id,
+                    body = ApproveDto(publishedBy = publisher)
+                )
+                if (!res.isSuccessful) {
+                    val errorMsg = res.errorBody()?.string() ?: res.message()
+                    return@withContext Result.failure(Exception("Sunucu onay hatası (${res.code()}): $errorMsg"))
                 }
             }
 
@@ -145,7 +136,7 @@ class SolixxRepository(context: Context) {
                 ))
                 Result.success(true)
             } else {
-                Result.failure(Exception("Announcement was already processed or not in PENDING state"))
+                Result.failure(Exception("Duyuru bulunamadı veya beklemede değil."))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -157,26 +148,17 @@ class SolixxRepository(context: Context) {
             val timestamp = now()
             val adminTgHeader = if (config.adminTelegramId > 0) config.adminTelegramId.toString() else null
 
-            if (config.isLiveConnected && !config.isLocalMode) {
-                try {
-                    val service = NetworkClient.getService(config.serverUrl)
-                    val res = service.rejectAnnouncement(
-                        config.apiKey,
-                        adminTgHeader,
-                        id,
-                        RejectDto(rejectionReason = reason, adminNotes = notes)
-                    )
-                    if (!res.isSuccessful) {
-                        return@withContext Result.failure(Exception("Backend HTTP error: ${res.code()} - ${res.message()}"))
-                    }
-                } catch (e: Exception) {
-                    logDao.insert(LogEntity(
-                        timestamp = timestamp,
-                        level = "WARN",
-                        category = "SYNC",
-                        message = "Remote reject sync failed: ${e.message}",
-                        details = "Rejection committed locally"
-                    ))
+            if (!config.isLocalMode && config.serverUrl.isNotBlank()) {
+                val service = NetworkClient.getService(config.serverUrl)
+                val res = service.rejectAnnouncement(
+                    apiKey = config.apiKey,
+                    adminTgId = adminTgHeader,
+                    id = id,
+                    body = RejectDto(rejectionReason = reason, adminNotes = notes)
+                )
+                if (!res.isSuccessful) {
+                    val errorMsg = res.errorBody()?.string() ?: res.message()
+                    return@withContext Result.failure(Exception("Sunucu ret hatası (${res.code()}): $errorMsg"))
                 }
             }
 
@@ -191,7 +173,7 @@ class SolixxRepository(context: Context) {
                 ))
                 Result.success(true)
             } else {
-                Result.failure(Exception("Announcement not in PENDING state"))
+                Result.failure(Exception("Duyuru bulunamadı veya beklemede değil."))
             }
         } catch (e: Exception) {
             Result.failure(e)

@@ -31,7 +31,7 @@ class SettingsDataStore(private val context: Context) {
 
         const val DEFAULT_SERVER_URL = "http://10.0.2.2:8000"
         const val DEFAULT_TARGET_CHANNEL = "@SolixxTR"
-        const val DEFAULT_LOCAL_MODE = true
+        const val DEFAULT_LOCAL_MODE = false
         const val DEFAULT_NOTIFICATIONS_ENABLED = true
         const val DEFAULT_AUTO_SYNC_INTERVAL = 30
     }

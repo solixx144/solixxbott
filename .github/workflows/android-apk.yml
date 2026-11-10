@@ -138,8 +138,8 @@ jobs:
             - **Platform:** Android 7.0+ (API 24+)
             
             ### Doğrudan İndirme (Assets):
-            1. **`SolixxBot-Tablet.apk`** — Tablet ve geniş ekranlara özel gelişmiş navigasyon ve bölünmüş panel arayüzü.
-            2. **`SolixxBot-Phone.apk`** — Mobil akıllı telefonlara özel tek elle hızlı onay, fotoğraf düzenleme ve dokunmatik moderasyon arayüzü.
+            1. **`SolixxBot-Tablet.apk`** — Tam özellikli tablet yönetim paneli (duyuru yönetimi, fotoğraf editörü, arkadaş yönetimi, sistem logları ve ayarlar).
+            2. **`SolixxBot-Phone.apk`** — Telefonlara özel sade ve odaklı moderasyon uygulaması (yalnızca bekleyen duyuruları listeleme, metin & fotoğraf görüntüleme, onayla ve reddet).
           files: |
             SolixxBot-Tablet.apk
             SolixxBot-Phone.apk
