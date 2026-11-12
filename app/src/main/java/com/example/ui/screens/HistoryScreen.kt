@@ -191,7 +191,8 @@ fun HistoryScreen(
                     onReject = {},
                     onEdit = {},
                     onPreview = onPreview,
-                    serverUrl = state.serverConfig.serverUrl
+                    serverUrl = state.serverConfig.serverUrl,
+                    apiKey = state.serverConfig.apiKey
                 )
             }
         }

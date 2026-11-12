@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Collections
@@ -79,11 +80,20 @@ import com.example.phone.ui.theme.TextSecondary
 
 fun resolvePhoneMediaUrl(item: MediaItem, serverUrl: String): String {
     val raw = item.url ?: "/api/media/${item.fileId}"
-    return if (raw.startsWith("http://") || raw.startsWith("https://")) {
-        raw
-    } else {
-        "${serverUrl.trimEnd('/')}/${raw.trimStart('/')}"
+    if (raw.startsWith("http://") || raw.startsWith("https://")) {
+        return raw
     }
+    val base = if (serverUrl.isBlank()) {
+        "http://127.0.0.1:8000"
+    } else {
+        val trimmed = serverUrl.trim()
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            "http://$trimmed"
+        } else {
+            trimmed
+        }
+    }
+    return "${base.trimEnd('/')}/${raw.trimStart('/')}"
 }
 
 @Composable
@@ -299,38 +309,77 @@ fun PendingAnnouncementCard(
             // Single Photo Display
             if (announcement.contentType == "PHOTO" && announcement.mediaItems.isNotEmpty()) {
                 val photoUrl = resolvePhoneMediaUrl(announcement.mediaItems.first(), serverUrl)
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val imageLoader = remember {
+                    com.example.phone.data.remote.ImageLoaderHelper.getAuthenticatedImageLoader(context, "")
+                }
+                val request = remember(photoUrl) {
+                    com.example.phone.data.remote.ImageLoaderHelper.buildImageRequest(context, photoUrl, "")
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(210.dp)
+                        .height(230.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF1E1035))
+                        .background(Brush.linearGradient(listOf(Color(0xFF281C45), Color(0xFF130E24))))
                         .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     SubcomposeAsyncImage(
-                        model = photoUrl,
+                        model = request,
+                        imageLoader = imageLoader,
                         contentDescription = "Duyuru Fotoğrafı",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.matchParentSize(),
                         loading = {
                             Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = AccentPurpleLight, modifier = Modifier.size(28.dp))
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(color = AccentPurpleLight, modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("Fotoğraf yükleniyor...", color = TextMuted, fontSize = 11.sp)
+                                }
                             }
                         },
                         error = {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = null,
-                                tint = AccentPurpleLight,
-                                modifier = Modifier.size(40.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .padding(12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Default.BrokenImage,
+                                        contentDescription = "Fotoğraf yüklenemedi",
+                                        tint = AccentRose,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Fotoğraf yüklenemedi",
+                                        color = AccentRose,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                    Text(
+                                        text = "Sunucu bağlantısını veya Telegram medyasını kontrol edin",
+                                        color = TextMuted,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
                         }
                     )
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             } else if (announcement.contentType == "ALBUM" && announcement.mediaItems.isNotEmpty()) {
                 // Album Display (Horizontal gallery)
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val imageLoader = remember {
+                    com.example.phone.data.remote.ImageLoaderHelper.getAuthenticatedImageLoader(context, "")
+                }
+
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
@@ -356,6 +405,10 @@ fun PendingAnnouncementCard(
                     ) {
                         itemsIndexed(announcement.mediaItems) { idx, item ->
                             val itemUrl = resolvePhoneMediaUrl(item, serverUrl)
+                            val request = remember(itemUrl) {
+                                com.example.phone.data.remote.ImageLoaderHelper.buildImageRequest(context, itemUrl, "")
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .size(120.dp)
@@ -365,7 +418,8 @@ fun PendingAnnouncementCard(
                                 contentAlignment = Alignment.Center
                             ) {
                                 SubcomposeAsyncImage(
-                                    model = itemUrl,
+                                    model = request,
+                                    imageLoader = imageLoader,
                                     contentDescription = "Görsel ${idx + 1}",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.matchParentSize(),
@@ -375,7 +429,7 @@ fun PendingAnnouncementCard(
                                         }
                                     },
                                     error = {
-                                        Icon(imageVector = Icons.Default.Image, contentDescription = null, tint = AccentPurpleLight)
+                                        Icon(imageVector = Icons.Default.BrokenImage, contentDescription = null, tint = AccentRose)
                                     }
                                 )
                                 Box(

@@ -16,7 +16,7 @@ class SolixxIntegrationTest {
     @Test
     fun testServerConfigDefaultsAndPersistenceModel() {
         val defaultConfig = ServerConfig()
-        assertEquals("http://10.0.2.2:8000", defaultConfig.serverUrl)
+        assertEquals("http://127.0.0.1:8000", defaultConfig.serverUrl)
         assertEquals("@SolixxTR", defaultConfig.targetChannel)
         assertTrue(defaultConfig.notificationsEnabled)
         assertEquals(30, defaultConfig.autoSyncInterval)

@@ -29,7 +29,7 @@ class SettingsDataStore(private val context: Context) {
         val KEY_NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
         val KEY_AUTO_SYNC_INTERVAL = intPreferencesKey("auto_sync_interval")
 
-        const val DEFAULT_SERVER_URL = "http://10.0.2.2:8000"
+        const val DEFAULT_SERVER_URL = "http://127.0.0.1:8000"
         const val DEFAULT_TARGET_CHANNEL = "@SolixxTR"
         const val DEFAULT_LOCAL_MODE = false
         const val DEFAULT_NOTIFICATIONS_ENABLED = true

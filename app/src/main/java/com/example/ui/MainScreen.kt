@@ -213,6 +213,7 @@ fun MainScreen(
         TelegramPreviewDialog(
             announcement = ann,
             serverUrl = state.serverConfig.serverUrl,
+            apiKey = state.serverConfig.apiKey,
             onDismiss = { viewModel.closePreviewDialog() },
             onApproveDirectly = {
                 viewModel.closePreviewDialog()

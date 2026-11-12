@@ -204,16 +204,52 @@ async def edit_announcement(announcement_id: int, req: EditRequest):
     updated_ann = database.get_announcement_by_id(announcement_id)
     return {"success": True, "message": "Announcement updated successfully", "announcement": updated_ann}
 
-# Media Proxy Endpoint: Serves Telegram photos and album media with disk caching
+# Media Proxy Endpoint: Serves Telegram photos and album media with disk caching and MIME detection
 @app.get("/api/media/{file_id}")
-async def get_media_file(file_id: str):
+async def get_media_file(
+    file_id: str,
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
+):
     clean_id = re.sub(r'[^a-zA-Z0-9_\-]', '', file_id)
     if not clean_id:
         raise HTTPException(status_code=400, detail="Invalid media identifier")
 
-    cached_path = MEDIA_CACHE_DIR / f"{clean_id}.jpg"
-    if cached_path.exists() and cached_path.stat().st_size > 0:
-        return FileResponse(str(cached_path), media_type="image/jpeg")
+    # Determine cached file path
+    cached_path = MEDIA_CACHE_DIR / f"{clean_id}.bin"
+    cached_legacy = MEDIA_CACHE_DIR / f"{clean_id}.jpg"
+
+    target_file = cached_path if (cached_path.exists() and cached_path.stat().st_size > 0) else (
+        cached_legacy if (cached_legacy.exists() and cached_legacy.stat().st_size > 0) else None
+    )
+
+    def detect_mime(filepath: Path) -> str:
+        try:
+            with open(filepath, "rb") as f:
+                header = f.read(12)
+                if header.startswith(b"\xff\xd8\xff"):
+                    return "image/jpeg"
+                if header.startswith(b"\x89PNG\r\n\x1a\n"):
+                    return "image/png"
+                if header.startswith(b"GIF87a") or header.startswith(b"GIF89a"):
+                    return "image/gif"
+                if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+                    return "image/webp"
+                if len(header) >= 8 and (b"ftyp" in header or header[4:8] == b"ftyp"):
+                    return "video/mp4"
+        except Exception:
+            pass
+        return "image/jpeg"
+
+    if target_file:
+        media_type = detect_mime(target_file)
+        return FileResponse(
+            str(target_file),
+            media_type=media_type,
+            headers={
+                "Cache-Control": "public, max-age=604800, immutable",
+                "Access-Control-Allow-Origin": "*"
+            }
+        )
 
     # If file_id is a full HTTP URL
     if file_id.startswith("http://") or file_id.startswith("https://"):
@@ -223,9 +259,10 @@ async def get_media_file(file_id: str):
                 if res.status_code == 200:
                     async with aiofiles.open(cached_path, "wb") as f:
                         await f.write(res.content)
-                    return FileResponse(str(cached_path), media_type="image/jpeg")
-        except Exception:
-            pass
+                    media_type = detect_mime(cached_path)
+                    return FileResponse(str(cached_path), media_type=media_type)
+        except Exception as http_err:
+            bot.logger.warning(f"Direct URL download failed for {file_id}: {http_err}")
 
     # 1. Try resolving via python-telegram-bot instance if running
     if bot.bot_app and bot.bot_app.bot:
@@ -234,15 +271,21 @@ async def get_media_file(file_id: str):
             if tg_file:
                 await tg_file.download_to_drive(custom_path=str(cached_path))
                 if cached_path.exists() and cached_path.stat().st_size > 0:
-                    return FileResponse(str(cached_path), media_type="image/jpeg")
+                    media_type = detect_mime(cached_path)
+                    return FileResponse(
+                        str(cached_path),
+                        media_type=media_type,
+                        headers={"Cache-Control": "public, max-age=604800, immutable"}
+                    )
         except Exception as e:
             bot.logger.warning(f"Could not download file {file_id} via telegram bot instance: {e}")
+            database.add_log("WARN", "MEDIA", f"Telegram bot get_file failed for {file_id}: {str(e)}", None)
 
     # 2. Direct Telegram Bot API HTTP download fallback
     token = config.TELEGRAM_BOT_TOKEN
     if token:
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
+            async with httpx.AsyncClient(timeout=25.0) as client:
                 info_res = await client.get(
                     f"https://api.telegram.org/bot{token}/getFile",
                     params={"file_id": file_id}
@@ -257,11 +300,20 @@ async def get_media_file(file_id: str):
                             if dl_res.status_code == 200:
                                 async with aiofiles.open(cached_path, "wb") as f:
                                     await f.write(dl_res.content)
-                                return FileResponse(str(cached_path), media_type="image/jpeg")
+                                media_type = detect_mime(cached_path)
+                                return FileResponse(
+                                    str(cached_path),
+                                    media_type=media_type,
+                                    headers={"Cache-Control": "public, max-age=604800, immutable"}
+                                )
+                    else:
+                        err_desc = data.get("description", "Unknown Telegram error")
+                        database.add_log("WARN", "MEDIA", f"Telegram getFile returned not ok for {file_id}: {err_desc}", None)
         except Exception as e:
             bot.logger.warning(f"Direct Telegram HTTP download failed for {file_id}: {e}")
+            database.add_log("ERROR", "MEDIA", f"Direct Telegram HTTP download failed for {file_id}: {str(e)}", None)
 
-    # Return placeholder 404
+    database.add_log("ERROR", "MEDIA", f"Failed to retrieve media file from Telegram: {file_id}", None)
     raise HTTPException(status_code=404, detail="Media file could not be retrieved from Telegram")
 
 # Friend Management

@@ -63,7 +63,7 @@ data class DashboardStats(
 )
 
 data class ServerConfig(
-    val serverUrl: String = "http://10.0.2.2:8000",
+    val serverUrl: String = "http://127.0.0.1:8000",
     val apiKey: String = "",
     val adminTelegramId: Long = 0L,
     val targetChannel: String = "@SolixxTR",

@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Collections
@@ -48,6 +49,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -388,22 +390,38 @@ fun ContentTypeBadge(contentType: String, mediaCount: Int = 1) {
     }
 }
 
-fun resolveMediaUrl(item: MediaItem, serverUrl: String = "http://10.0.2.2:8000"): String {
+fun resolveMediaUrl(item: MediaItem, serverUrl: String = ""): String {
     val raw = item.url ?: "/api/media/${item.fileId}"
-    return if (raw.startsWith("http://") || raw.startsWith("https://")) {
-        raw
-    } else {
-        "${serverUrl.trimEnd('/')}/${raw.trimStart('/')}"
+    if (raw.startsWith("http://") || raw.startsWith("https://")) {
+        return raw
     }
+    // Determine effective base URL: if serverUrl is blank, default to http://127.0.0.1:8000 (standard for local backend)
+    val base = if (serverUrl.isBlank()) {
+        "http://127.0.0.1:8000"
+    } else {
+        val trimmed = serverUrl.trim()
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            "http://$trimmed"
+        } else {
+            trimmed
+        }
+    }
+    return "${base.trimEnd('/')}/${raw.trimStart('/')}"
 }
 
 @Composable
 fun MediaPreviewBox(
     contentType: String,
     mediaItems: List<MediaItem>,
-    serverUrl: String = "http://10.0.2.2:8000",
+    serverUrl: String = "",
+    apiKey: String = "",
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val imageLoader = remember(apiKey) {
+        com.example.data.remote.ImageLoaderHelper.getAuthenticatedImageLoader(context, apiKey)
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -414,64 +432,108 @@ fun MediaPreviewBox(
     ) {
         when (contentType) {
             "PHOTO" -> {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(68.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Brush.linearGradient(listOf(Color(0xFF3B1D6B), Color(0xFF1E1035))))
-                            .border(1.dp, AccentPurple.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val photoUrl = mediaItems.firstOrNull()?.let { resolveMediaUrl(it, serverUrl) }
-                        if (!photoUrl.isNullOrBlank()) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    val firstItem = mediaItems.firstOrNull()
+                    val photoUrl = firstItem?.let { resolveMediaUrl(it, serverUrl) }
+
+                    if (!photoUrl.isNullOrBlank()) {
+                        val request = remember(photoUrl, apiKey) {
+                            com.example.data.remote.ImageLoaderHelper.buildImageRequest(context, photoUrl, apiKey)
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Brush.linearGradient(listOf(Color(0xFF281C45), Color(0xFF130E24))))
+                                .border(1.dp, AccentPurple.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
                             SubcomposeAsyncImage(
-                                model = photoUrl,
-                                contentDescription = "Telegram Photo",
+                                model = request,
+                                imageLoader = imageLoader,
+                                contentDescription = "Telegram Duyuru Fotoğrafı",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.matchParentSize(),
                                 loading = {
                                     Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator(
-                                            color = AccentPurpleLight,
-                                            modifier = Modifier.size(20.dp),
-                                            strokeWidth = 2.dp
-                                        )
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            CircularProgressIndicator(
+                                                color = AccentPurpleLight,
+                                                modifier = Modifier.size(28.dp),
+                                                strokeWidth = 2.dp
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "Fotoğraf yükleniyor...",
+                                                color = TextMuted,
+                                                fontSize = 11.sp
+                                            )
+                                        }
                                     }
                                 },
                                 error = {
-                                    Icon(
-                                        imageVector = Icons.Default.Image,
-                                        contentDescription = "Photo fallback",
-                                        tint = AccentPurpleLight,
-                                        modifier = Modifier.size(28.dp)
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                            .padding(12.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(
+                                                imageVector = Icons.Default.BrokenImage,
+                                                contentDescription = "Fotoğraf yüklenemedi",
+                                                tint = AccentRose,
+                                                modifier = Modifier.size(32.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "Fotoğraf yüklenemedi",
+                                                color = AccentRose,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp
+                                            )
+                                            Text(
+                                                text = "Sunucu bağlantısını veya Telegram file_id kontrol edin",
+                                                color = TextMuted,
+                                                fontSize = 10.sp,
+                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            )
+                                        }
+                                    }
                                 }
                             )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = "Photo",
-                                tint = AccentPurpleLight,
-                                modifier = Modifier.size(28.dp)
-                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF281C45)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Fotoğraf bilgisi bulunamadı", color = TextMuted, fontSize = 12.sp)
                         }
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column {
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = "Telegram Fotoğraf Medyası",
+                            text = "📷 Telegram Fotoğrafı",
                             color = TextPrimary,
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
+                            fontSize = 12.sp
                         )
                         Text(
-                            text = "Dosya ID: ${mediaItems.firstOrNull()?.fileId?.take(18) ?: "tg_photo"}... (Önizleme Aktif)",
+                            text = "ID: ${firstItem?.fileId?.take(16) ?: "none"}...",
                             color = TextMuted,
-                            fontSize = 11.sp
+                            fontSize = 10.sp
                         )
                     }
                 }
@@ -492,83 +554,80 @@ fun MediaPreviewBox(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Medya Grubu / Albüm (${mediaItems.size} Öğe)",
+                                text = "Medya Grubu / Albüm (${mediaItems.size} Görsel)",
                                 color = TextPrimary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
                             )
                         }
                         Text(
-                            text = "Tek Paylaşım",
+                            text = "Çoklu Fotoğraf",
                             color = AccentEmerald,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Spacer(modifier = Modifier.height(10.dp))
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        val displayCount = minOf(4, mediaItems.size)
-                        for (i in 0 until displayCount) {
-                            val item = mediaItems.getOrNull(i)
+                        items(mediaItems.size) { i ->
+                            val item = mediaItems[i]
+                            val itemUrl = resolveMediaUrl(item, serverUrl)
+                            val request = remember(itemUrl, apiKey) {
+                                com.example.data.remote.ImageLoaderHelper.buildImageRequest(context, itemUrl, apiKey)
+                            }
+
                             Box(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .height(64.dp)
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .size(110.dp)
+                                    .clip(RoundedCornerShape(10.dp))
                                     .background(Brush.linearGradient(listOf(Color(0xFF281C45), Color(0xFF18122B))))
-                                    .border(1.dp, BorderSubtle, RoundedCornerShape(8.dp)),
+                                    .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                val itemUrl = item?.let { resolveMediaUrl(it, serverUrl) }
-                                if (!itemUrl.isNullOrBlank()) {
-                                    SubcomposeAsyncImage(
-                                        model = itemUrl,
-                                        contentDescription = "Album Item $i",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.matchParentSize(),
-                                        loading = {
-                                            Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-                                                CircularProgressIndicator(
-                                                    color = AccentPurpleLight,
-                                                    modifier = Modifier.size(16.dp),
-                                                    strokeWidth = 2.dp
-                                                )
-                                            }
-                                        },
-                                        error = {
-                                            Icon(
-                                                imageVector = Icons.Default.Image,
-                                                contentDescription = null,
-                                                tint = AccentPurpleLight.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(20.dp)
+                                SubcomposeAsyncImage(
+                                    model = request,
+                                    imageLoader = imageLoader,
+                                    contentDescription = "Albüm Görseli ${i + 1}",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.matchParentSize(),
+                                    loading = {
+                                        Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                                            CircularProgressIndicator(
+                                                color = AccentPurpleLight,
+                                                modifier = Modifier.size(18.dp),
+                                                strokeWidth = 2.dp
                                             )
                                         }
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Image,
-                                        contentDescription = "Photo $i",
-                                        tint = AccentPurpleLight.copy(alpha = 0.7f),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                                if (i == 3 && mediaItems.size > 4) {
-                                    Box(
-                                        modifier = Modifier
-                                            .matchParentSize()
-                                            .background(Color.Black.copy(alpha = 0.6f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "+${mediaItems.size - 3}",
-                                            color = AccentPurpleLight,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp
-                                        )
+                                    },
+                                    error = {
+                                        Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                imageVector = Icons.Default.BrokenImage,
+                                                contentDescription = null,
+                                                tint = AccentRose.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
                                     }
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomEnd)
+                                        .padding(4.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color.Black.copy(alpha = 0.7f))
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "${i + 1}/${mediaItems.size}",
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }

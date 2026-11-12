@@ -672,7 +672,8 @@ fun EditDialog(
 @Composable
 fun TelegramPreviewDialog(
     announcement: Announcement,
-    serverUrl: String = "http://10.0.2.2:8000",
+    serverUrl: String = "",
+    apiKey: String = "",
     onDismiss: () -> Unit,
     onApproveDirectly: () -> Unit
 ) {
@@ -778,7 +779,8 @@ fun TelegramPreviewDialog(
                             MediaPreviewBox(
                                 contentType = announcement.contentType,
                                 mediaItems = announcement.mediaItems,
-                                serverUrl = serverUrl
+                                serverUrl = serverUrl,
+                                apiKey = apiKey
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                         }
