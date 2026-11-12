@@ -2,12 +2,20 @@ import asyncio
 import json
 import logging
 from typing import Dict, List, Optional, Any
-from telegram import Update, InputMediaPhoto, InputMediaVideo, Bot
+from telegram import (
+    Update,
+    InputMediaPhoto,
+    InputMediaVideo,
+    Bot,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from telegram.ext import (
     Application,
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
@@ -362,6 +370,274 @@ async def notify_rejection(announcement_id: int, reason: str, admin_notes: Optio
 
     return True
 
+# -------------------------------------------------------------
+# Telegram Admin Moderation Panel
+# -------------------------------------------------------------
+
+def is_admin_authorized(user_id: int) -> bool:
+    """Check if the given Telegram user ID is authorized as an administrator."""
+    if not user_id:
+        return False
+    if config.ADMIN_TELEGRAM_IDS:
+        return user_id in config.ADMIN_TELEGRAM_IDS
+    if config.ADMIN_TELEGRAM_ID > 0:
+        return user_id == config.ADMIN_TELEGRAM_ID
+    return False
+
+def make_admin_action_keyboard(announcement_id: int) -> InlineKeyboardMarkup:
+    """Create inline keyboard with prominent Approve and Reject buttons."""
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ ONAYLA", callback_data=f"adm_app_{announcement_id}"),
+            InlineKeyboardButton("❌ REDDET", callback_data=f"adm_rej_{announcement_id}")
+        ]
+    ])
+
+async def send_admin_announcement_item(bot: Bot, chat_id: int, ann: Dict[str, Any]):
+    """Sends a pending announcement preview to admin with approval buttons."""
+    ann_id = ann["id"]
+    sender_name = ann.get("sender_display_name") or f"User {ann.get('sender_telegram_id')}"
+    username = ann.get("sender_username")
+    uname_str = f" (@{username})" if username else ""
+    tg_id = ann.get("sender_telegram_id")
+    created_at = ann.get("created_at", "")[:16]
+    content_type = ann.get("content_type", "TEXT")
+    text_content = (ann.get("text_content") or "").strip()
+    media_items = ann.get("media_items", [])
+
+    caption = (
+        f"📋 **BEKLEYEN DUYURU #{ann_id}**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **Gönderen:** {sender_name}{uname_str}\n"
+        f"🆔 **Telegram ID:** `{tg_id}`\n"
+        f"📅 **Tarih:** {created_at}\n"
+        f"📁 **Tür:** {content_type}\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+    )
+
+    if text_content:
+        caption += f"\n📝 **İçerik / Açıklama:**\n{text_content}\n"
+
+    keyboard = make_admin_action_keyboard(ann_id)
+
+    try:
+        if content_type == "PHOTO" and media_items:
+            photo_file_id = media_items[0]["file_id"]
+            await bot.send_photo(
+                chat_id=chat_id,
+                photo=photo_file_id,
+                caption=caption[:1024],
+                parse_mode="Markdown",
+                reply_markup=keyboard
+            )
+        elif content_type == "VIDEO" and media_items:
+            video_file_id = media_items[0]["file_id"]
+            await bot.send_video(
+                chat_id=chat_id,
+                video=video_file_id,
+                caption=caption[:1024],
+                parse_mode="Markdown",
+                reply_markup=keyboard
+            )
+        elif content_type == "ALBUM" and media_items:
+            # For albums, send photos/videos with album notice and attach inline keyboard
+            first_media = media_items[0]
+            if first_media.get("type") == "video":
+                await bot.send_video(
+                    chat_id=chat_id,
+                    video=first_media["file_id"],
+                    caption=f"{caption[:950]}\n\n🖼️ *(Toplam {len(media_items)} medya içeren albümün ilk parçası)*",
+                    parse_mode="Markdown",
+                    reply_markup=keyboard
+                )
+            else:
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=first_media["file_id"],
+                    caption=f"{caption[:950]}\n\n🖼️ *(Toplam {len(media_items)} medya içeren albümün ilk parçası)*",
+                    parse_mode="Markdown",
+                    reply_markup=keyboard
+                )
+        else:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=caption,
+                parse_mode="Markdown",
+                reply_markup=keyboard
+            )
+    except Exception as e:
+        logger.error(f"Error sending admin preview for announcement #{ann_id}: {e}")
+        # Fallback to plain text message with keyboard
+        try:
+            fallback_text = (
+                f"{caption}\n\n⚠️ *(Medya Telegram'da önizlenemedi, metin olarak iletildi)*"
+            )
+            await bot.send_message(
+                chat_id=chat_id,
+                text=fallback_text,
+                parse_mode="Markdown",
+                reply_markup=keyboard
+            )
+        except Exception as fallback_err:
+            logger.error(f"Fallback send failed: {fallback_err}")
+
+async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Command /admin or /panel: lists all pending announcements for moderation."""
+    user = update.effective_user
+    msg = update.effective_message
+    if not user or not msg:
+        return
+
+    # Strict authorization check
+    if not is_admin_authorized(user.id):
+        database.add_log("WARN", "AUTH", f"Unauthorized /admin attempt by Telegram ID: {user.id}", None)
+        await msg.reply_text(
+            f"⛔ **Yetkisiz Erişim**\n\n"
+            f"Telegram ID'niz (`{user.id}`) bu botun yönetici listesinde bulunmamaktadır.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Retrieve all pending announcements from the database
+    pending = database.get_announcements(status="PENDING", limit=50)
+
+    if not pending:
+        await msg.reply_text(
+            f"👋 Merhaba **{user.first_name}**,\n\n"
+            f"✅ **Yönetici Paneli**\n"
+            f"Şu anda inceleme veya onay bekleyen herhangi bir duyuru bulunmamaktadır.\n\n"
+            f"🎯 Hedef Kanal: **{config.TARGET_CHANNEL}**",
+            parse_mode="Markdown"
+        )
+        return
+
+    await msg.reply_text(
+        f"🛡️ **SolixxBot Yönetici Paneli**\n"
+        f"Toplam **{len(pending)}** adet onay bekleyen duyuru bulundu.\n"
+        f"Hedef Kanal: **{config.TARGET_CHANNEL}**\n\n"
+        f"Aşağıdaki duyuruları inceleyip doğrudan onaylayabilir veya reddedebilirsiniz:",
+        parse_mode="Markdown"
+    )
+
+    bot: Bot = context.bot
+    for ann in pending:
+        await send_admin_announcement_item(bot, msg.chat_id, ann)
+        await asyncio.sleep(0.3)
+
+async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles inline buttons: adm_app_<id> and adm_rej_<id>."""
+    query = update.callback_query
+    if not query:
+        return
+
+    user = update.effective_user
+    if not user:
+        await query.answer("Kullanıcı bilgisi alınamadı.", show_alert=True)
+        return
+
+    # Strict authorization check
+    if not is_admin_authorized(user.id):
+        database.add_log("WARN", "AUTH", f"Unauthorized callback action by Telegram ID: {user.id}", f"Data: {query.data}")
+        await query.answer("⛔ Bu işlemi gerçekleştirme yetkiniz bulunmuyor!", show_alert=True)
+        return
+
+    data = query.data or ""
+    if not (data.startswith("adm_app_") or data.startswith("adm_rej_")):
+        await query.answer()
+        return
+
+    action, ann_id_str = data.split("_", 2)[1:]
+    try:
+        ann_id = int(ann_id_str)
+    except ValueError:
+        await query.answer("Geçersiz duyuru numarası.", show_alert=True)
+        return
+
+    # Check announcement current status atomically from database
+    ann = database.get_announcement_by_id(ann_id)
+    if not ann:
+        await query.answer(f"Duyuru #{ann_id} veritabanında bulunamadı.", show_alert=True)
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
+
+    # Race condition prevention: announcement must be PENDING
+    if ann["status"] != "PENDING":
+        status_tr = "onaylanmış" if ann["status"] == "APPROVED" else "reddedilmiş"
+        await query.answer(f"⚠️ Bu duyuru daha önce zaten {status_tr}!", show_alert=True)
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
+
+    admin_label = f"Admin {user.full_name or user.first_name} (TG: {user.id})"
+
+    if action == "app":
+        # APPROVE ACTION -> calls existing publish_announcement()
+        await query.answer("Yayınlanıyor...", show_alert=False)
+        success = await publish_announcement(announcement_id=ann_id, published_by=admin_label)
+        if success:
+            done_text = (
+                f"✅ **ONAYLANDI VE YAYIMLANDI**\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"📌 Duyuru #{ann_id}\n"
+                f"👤 Onaylayan: {user.first_name}\n"
+                f"📢 Kanal: {config.TARGET_CHANNEL}"
+            )
+            try:
+                if query.message.caption:
+                    new_caption = f"{query.message.caption}\n\n{done_text}"
+                    await query.edit_message_caption(caption=new_caption[:1024], parse_mode="Markdown", reply_markup=None)
+                elif query.message.text:
+                    new_text = f"{query.message.text}\n\n{done_text}"
+                    await query.edit_message_text(text=new_text, parse_mode="Markdown", reply_markup=None)
+                else:
+                    await query.edit_message_reply_markup(reply_markup=None)
+            except Exception as edit_err:
+                logger.warning(f"Could not edit message text after approval: {edit_err}")
+                try:
+                    await query.edit_message_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
+            await query.answer(f"✅ #{ann_id} onaylandı ve kanalda paylaşıldı!", show_alert=True)
+        else:
+            await query.answer(f"⚠️ #{ann_id} paylaşılamadı! Hata kayıtlarına bakın.", show_alert=True)
+
+    elif action == "rej":
+        # REJECT ACTION -> calls existing notify_rejection()
+        await query.answer("İşleniyor...", show_alert=False)
+        default_reason = "Telegram yöneticisi tarafından incelendi ve uygun bulunmadı."
+        success = await notify_rejection(announcement_id=ann_id, reason=default_reason, admin_notes=f"Rejected via Telegram panel by {admin_label}")
+        if success:
+            done_text = (
+                f"❌ **REDDEDİLDİ**\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"📌 Duyuru #{ann_id}\n"
+                f"👤 Reddeden: {user.first_name}\n"
+                f"✉️ Kullanıcıya ret bildirimi iletildi."
+            )
+            try:
+                if query.message.caption:
+                    new_caption = f"{query.message.caption}\n\n{done_text}"
+                    await query.edit_message_caption(caption=new_caption[:1024], parse_mode="Markdown", reply_markup=None)
+                elif query.message.text:
+                    new_text = f"{query.message.text}\n\n{done_text}"
+                    await query.edit_message_text(text=new_text, parse_mode="Markdown", reply_markup=None)
+                else:
+                    await query.edit_message_reply_markup(reply_markup=None)
+            except Exception as edit_err:
+                logger.warning(f"Could not edit message text after rejection: {edit_err}")
+                try:
+                    await query.edit_message_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
+            await query.answer(f"❌ #{ann_id} reddedildi ve kullanıcıya bildirildi.", show_alert=True)
+        else:
+            await query.answer(f"⚠️ #{ann_id} reddedilemedi veya durumu değişmiş.", show_alert=True)
+
 async def start_telegram_bot():
     """Initializes and runs the Telegram bot if token is configured."""
     global bot_app
@@ -373,8 +649,18 @@ async def start_telegram_bot():
     try:
         app = ApplicationBuilder().token(token).build()
 
+        # Admin panel commands
+        app.add_handler(CommandHandler("admin", admin_panel_command))
+        app.add_handler(CommandHandler("panel", admin_panel_command))
+
+        # Admin inline callback queries (Approve / Reject)
+        app.add_handler(CallbackQueryHandler(handle_admin_callback, pattern=r"^adm_(app|rej)_\d+$"))
+
+        # User commands
         app.add_handler(CommandHandler("start", start_command))
         app.add_handler(CommandHandler("help", start_command))
+
+        # Incoming announcement submissions
         app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_incoming_message))
 
         await app.initialize()
@@ -383,7 +669,7 @@ async def start_telegram_bot():
 
         bot_app = app
         logger.info(f"SolixxBot connected and polling for updates for {config.TARGET_CHANNEL}")
-        database.add_log("SUCCESS", "BOT", f"Telegram bot polling active for {config.TARGET_CHANNEL}", None)
+        database.add_log("SUCCESS", "BOT", f"Telegram bot polling active for {config.TARGET_CHANNEL} (Admin panel enabled)", None)
         return app
     except Exception as e:
         logger.error(f"Failed to start Telegram Bot: {e}")
